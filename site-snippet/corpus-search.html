@@ -109,6 +109,7 @@
       var ENDPOINT = isLocalLab
         ? "http://" + localCorpusHost + ":8092/search"
         : "https://corpus.atlas-systems.uk/search";
+      var FALLBACK_ENDPOINT = "https://corpus.atlas-systems.uk/search";
       var form = document.getElementById("csw-form");
       var input = document.getElementById("csw-q");
       var button = document.getElementById("csw-go");
@@ -152,6 +153,33 @@
         list.appendChild(item);
       }
 
+      function searchCorpus(query) {
+        var endpoints = [ENDPOINT];
+        if (ENDPOINT !== FALLBACK_ENDPOINT) endpoints.push(FALLBACK_ENDPOINT);
+        var index = 0;
+
+        function tryNext(lastError) {
+          if (index >= endpoints.length) throw lastError;
+          var endpoint = endpoints[index++];
+          var url = endpoint + "?q=" + encodeURIComponent(query) + "&top_k=5";
+          return fetch(url, { cache: "no-store" })
+            .then(function (response) {
+              if (response.status === 429) throw new Error("rate limited; wait a minute");
+              if (!response.ok) throw new Error("corpus answered " + response.status);
+              return response.json();
+            })
+            .catch(function (err) {
+              if (index < endpoints.length) {
+                status.textContent = "local search unavailable; trying tunnel…";
+                return tryNext(err);
+              }
+              throw err;
+            });
+        }
+
+        return tryNext(new Error("search unavailable"));
+      }
+
       form.addEventListener("submit", function (event) {
         event.preventDefault();
         var query = input.value.trim();
@@ -161,13 +189,7 @@
         status.textContent = "searching…";
         clearResults();
 
-        var url = ENDPOINT + "?q=" + encodeURIComponent(query) + "&top_k=5";
-        fetch(url, { cache: "no-store" })
-          .then(function (response) {
-            if (response.status === 429) throw new Error("rate limited; wait a minute");
-            if (!response.ok) throw new Error("corpus answered " + response.status);
-            return response.json();
-          })
+        searchCorpus(query)
           .then(function (data) {
             if (!data.hits.length) {
               status.textContent = "nothing relevant indexed for that";
