@@ -1,0 +1,46 @@
+# Reusable workflow: tells atlas-corpus to re-ingest after a push.
+#
+# Add to any Atlas Systems repo's caller as one extra job:
+#
+#   jobs:
+#     refresh-corpus:
+#       uses: AtlasReaper311/atlas-corpus/.github/workflows/refresh-corpus.yml@main
+#       secrets:
+#         CORPUS_SECRET: ${{ secrets.CORPUS_SECRET }}
+#
+# The endpoint answers 202 immediately and ingests in the background;
+# a corpus that is offline fails soft (the step warns, the push does
+# not fail: freshness is not worth blocking deploys over).
+
+name: refresh-corpus
+
+on:
+  workflow_call:
+    inputs:
+      corpus_url:
+        description: "Refresh endpoint"
+        required: false
+        type: string
+        default: "https://corpus.atlas-systems.uk/refresh"
+    secrets:
+      CORPUS_SECRET:
+        required: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /refresh
+        env:
+          CORPUS_URL: ${{ inputs.corpus_url }}
+          CORPUS_SECRET: ${{ secrets.CORPUS_SECRET }}
+        run: |
+          set -uo pipefail
+          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+            -H "x-corpus-secret: ${CORPUS_SECRET}" \
+            --max-time 20 \
+            "${CORPUS_URL}") || STATUS="000"
+          echo "corpus answered ${STATUS}"
+          if [ "$STATUS" != "202" ]; then
+            echo "::warning::corpus refresh not confirmed (HTTP ${STATUS}); it will catch up on the next trigger"
+          fi
