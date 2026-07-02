@@ -104,7 +104,11 @@
   <script>
     (function () {
       "use strict";
-      var ENDPOINT = "https://corpus.atlas-systems.uk/search";
+      var isLocalLab = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+      var localCorpusHost = location.hostname === "127.0.0.1" ? "127.0.0.1" : "localhost";
+      var ENDPOINT = isLocalLab
+        ? "http://" + localCorpusHost + ":8092/search"
+        : "https://corpus.atlas-systems.uk/search";
       var form = document.getElementById("csw-form");
       var input = document.getElementById("csw-q");
       var button = document.getElementById("csw-go");
