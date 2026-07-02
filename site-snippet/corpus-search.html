@@ -161,11 +161,8 @@
         status.textContent = "searching…";
         clearResults();
 
-        fetch(ENDPOINT, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ query: query, top_k: 5 }),
-        })
+        var url = ENDPOINT + "?q=" + encodeURIComponent(query) + "&top_k=5";
+        fetch(url, { cache: "no-store" })
           .then(function (response) {
             if (response.status === 429) throw new Error("rate limited; wait a minute");
             if (!response.ok) throw new Error("corpus answered " + response.status);

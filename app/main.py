@@ -1,6 +1,6 @@
 """FastAPI service: the queryable knowledge layer over Atlas Systems.
 
-Surface split by trust level. POST /search is public because browsers
+Surface split by trust level. GET/POST /search is public because browsers
 call it from the site widget, so it carries the protections the edge
 would normally provide: per-IP rate limiting, query length caps, and a
 CORS allowlist. POST /refresh mutates state and is gated by
@@ -20,7 +20,7 @@ from collections import defaultdict, deque
 from contextlib import asynccontextmanager, suppress
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
@@ -195,9 +195,8 @@ def root() -> RedirectResponse:
     return RedirectResponse(url="/docs")
 
 
-@app.post("/search", response_model=SearchResponse)
-async def search_corpus(payload: SearchRequest, request: Request) -> SearchResponse:
-    """Public semantic search with per-IP rate limiting."""
+async def _run_search(payload: SearchRequest, request: Request) -> SearchResponse:
+    """Shared search path for browser POSTs and URL/query-string GETs."""
     _rate_limit(app, _client_ip(request))
     settings: Settings = app.state.settings
     started = time.time()
@@ -209,6 +208,26 @@ async def search_corpus(payload: SearchRequest, request: Request) -> SearchRespo
         hits=hits,
         took_ms=int((time.time() - started) * 1000),
     )
+
+
+@app.post("/search", response_model=SearchResponse)
+async def search_corpus(payload: SearchRequest, request: Request) -> SearchResponse:
+    """Public semantic search with per-IP rate limiting."""
+    return await _run_search(payload, request)
+
+
+@app.get("/search", response_model=SearchResponse)
+async def search_corpus_get(
+    request: Request,
+    q: str | None = Query(default=None, min_length=1, max_length=500),
+    query: str | None = Query(default=None, min_length=1, max_length=500),
+    top_k: int | None = Query(default=None, ge=1, le=10),
+) -> SearchResponse:
+    """GET-compatible search for direct browser URLs and no-preflight clients."""
+    text = q or query
+    if not text:
+        raise HTTPException(status_code=400, detail="query is required")
+    return await _run_search(SearchRequest(query=text, top_k=top_k), request)
 
 
 @app.get("/index", response_model=IndexResponse)
