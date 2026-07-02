@@ -1,0 +1,71 @@
+# atlas-corpus
+#
+# One command to a queryable corpus:  docker compose up --build -d
+#
+# Two services: a pinned Chroma vector store and the FastAPI corpus
+# built from this repo. Ollama stays on the host (it owns the GPU);
+# the container reaches it through host.docker.internal, mapped on
+# native Linux by extra_hosts.
+
+name: atlas-corpus
+
+services:
+  chromadb:
+    # Server image pinned to match the chromadb client pin in
+    # requirements.txt. Bump both together.
+    image: chromadb/chroma:0.5.23
+    restart: unless-stopped
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    volumes:
+      - corpus-chroma:/chroma/chroma
+    # No host port on purpose: 8000 belongs to the rag stack. This
+    # Chroma lives on the compose network only.
+    # No healthcheck: the image lacks curl; the app owns readiness.
+
+  corpus:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - chromadb
+    ports:
+      - "8092:8092"
+    environment:
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+      - EMBED_BATCH_SIZE=${EMBED_BATCH_SIZE:-16}
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - COLLECTION_NAME=${COLLECTION_NAME:-atlas_corpus}
+      - GITHUB_OWNER=${GITHUB_OWNER:-AtlasReaper311}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - EXCLUDE_REPOS=${EXCLUDE_REPOS:-AtlasReaper311}
+      - SITE_REPO=${SITE_REPO:-atlas-systems}
+      - CASE_STUDY_PREFIX=${CASE_STUDY_PREFIX:-work/}
+      - ARTICLE_PREFIX=${ARTICLE_PREFIX:-writing/}
+      - EXTRA_FILES=${EXTRA_FILES:-atlas-infra:docs/decisions.md:decision}
+      - DOCS_DIR=/srv/docs
+      - CHUNK_WORDS=${CHUNK_WORDS:-512}
+      - CHUNK_OVERLAP_WORDS=${CHUNK_OVERLAP_WORDS:-64}
+      - TOP_K_DEFAULT=${TOP_K_DEFAULT:-5}
+      - TOP_K_MAX=${TOP_K_MAX:-10}
+      - QUERY_MAX_CHARS=${QUERY_MAX_CHARS:-500}
+      - RATE_LIMIT_PER_HOUR=${RATE_LIMIT_PER_HOUR:-60}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://atlas-systems.uk,https://www.atlas-systems.uk,http://localhost:8788}
+      - REFRESH_INTERVAL_SECONDS=${REFRESH_INTERVAL_SECONDS:-0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Fail-closed: the stack refuses to start without a secret, same
+      # rule as the rag stack's ATLAS_SECRET.
+      - CORPUS_SECRET=${CORPUS_SECRET:?CORPUS_SECRET must be set; generate with `python -c "import secrets; print(secrets.token_urlsafe(48))"`}
+    volumes:
+      # Read-only: ingest consumes the brand and context docs, it must
+      # never be able to touch the originals.
+      - ./docs:/srv/docs:ro
+    extra_hosts:
+      # Docker Desktop provides host.docker.internal natively; native
+      # Linux does not. host-gateway makes the name resolve everywhere.
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  corpus-chroma:

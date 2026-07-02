@@ -1,0 +1,13 @@
+# Secrets and local config
+.env
+
+# Local documents are personal source material, not repo content.
+docs/*
+!docs/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ruff_cache/
