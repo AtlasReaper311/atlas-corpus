@@ -1,7 +1,7 @@
 # CI gate for atlas-corpus: the ollama-rag-kit pattern. Syntax-check
-# every module, prove the image builds, report to #ci-cd via direct
-# curl (workflows are self-contained; they never depend on the router
-# being up to report their own outcomes).
+# every module, run the stdlib unit suite, prove the image builds,
+# report to #ci-cd via direct curl (workflows are self-contained; they
+# never depend on the router being up to report their own outcomes).
 #
 # workflow_dispatch is declared from day one so ramone-voice-trigger
 # can fire this repo without a follow-up patch.
@@ -27,6 +27,9 @@ jobs:
       - name: Syntax-check every module
         run: python -m compileall app
 
+      - name: Unit suite
+        run: python -m unittest discover -s tests -t .
+
       - name: Prove the image builds
         run: docker compose build
         env:
@@ -50,7 +53,7 @@ jobs:
               username: "ci-cd",
               embeds: [{
                 title: "atlas-corpus CI",
-                description: ($icon + " compileall + docker compose build: " + $status),
+                description: ($icon + " compileall + unittest + docker compose build: " + $status),
                 color: $colour,
                 fields: [{name: "Run", value: ("[logs](" + $run_url + ")"), inline: true}],
                 footer: {text: "Atlas Systems — Pipeline"}

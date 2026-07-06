@@ -12,7 +12,7 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVICE_NAME = "atlas-corpus"
-SERVICE_VERSION = "1.0.0"
+SERVICE_VERSION = "1.1.0"
 
 
 class Settings(BaseSettings):
@@ -70,6 +70,16 @@ class Settings(BaseSettings):
     # Periodic re-ingest in seconds; 0 disables it because the push
     # trigger (github-trigger/) is the primary freshness mechanism.
     refresh_interval_seconds: int = 0
+
+    # Query logging and the hourly stats summary. SQLite on the data
+    # volume, not KV at the edge: logging stays inside the hot path's
+    # own failure domain and never costs a network write per query.
+    # An empty report key disables the summariser; logging itself is
+    # always on, being local and free.
+    query_log_path: str = "/srv/data/queries.db"
+    rag_report_url: str = "https://api.atlas-systems.uk/v1/rag/report"
+    rag_report_key: str = ""
+    rag_summary_interval_seconds: int = 3600
 
     log_level: str = "INFO"
 

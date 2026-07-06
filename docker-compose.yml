@@ -55,6 +55,12 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://atlas-systems.uk,https://www.atlas-systems.uk,http://localhost:8788}
       - REFRESH_INTERVAL_SECONDS=${REFRESH_INTERVAL_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Query logging and the hourly stats summary. An empty key keeps
+      # the summariser off; logging itself is always on (local, free).
+      - QUERY_LOG_PATH=${QUERY_LOG_PATH:-/srv/data/queries.db}
+      - RAG_REPORT_URL=${RAG_REPORT_URL:-https://api.atlas-systems.uk/v1/rag/report}
+      - RAG_REPORT_KEY=${RAG_REPORT_KEY:-}
+      - RAG_SUMMARY_INTERVAL_SECONDS=${RAG_SUMMARY_INTERVAL_SECONDS:-3600}
       # Fail-closed: the stack refuses to start without a secret, same
       # rule as the rag stack's ATLAS_SECRET.
       - CORPUS_SECRET=${CORPUS_SECRET:?CORPUS_SECRET must be set; generate with `python -c "import secrets; print(secrets.token_urlsafe(48))"`}
@@ -62,6 +68,10 @@ services:
       # Read-only: ingest consumes the brand and context docs, it must
       # never be able to touch the originals.
       - ./docs:/srv/docs:ro
+      # The query log. Named volume so `compose down` keeps the data;
+      # the image pre-creates /srv/data owned by the corpus user so the
+      # volume never initialises root-owned.
+      - corpus-data:/srv/data
     extra_hosts:
       # Docker Desktop provides host.docker.internal natively; native
       # Linux does not. host-gateway makes the name resolve everywhere.
@@ -69,3 +79,4 @@ services:
 
 volumes:
   corpus-chroma:
+  corpus-data:

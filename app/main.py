@@ -11,9 +11,17 @@ Ingest runs in the background: at startup, on demand via /refresh, and
 optionally on a timer. A lock makes refreshes single-flight; a second
 trigger while one runs is acknowledged, not queued, because ingest is
 idempotent and the next push will refresh again anyway.
+
+Every real /search is logged to SQLite on the data volume (query text,
+result count, latency; never IPs), GET /stats serves the aggregates,
+and an hourly task posts a summary to atlas-api-public, which relays
+active hours to #rag-queries. Sentinel canaries (internal header from a
+loopback or private address) are exempt from logging and rate limiting,
+so monitoring never pollutes the stats it sits beside.
 """
 
 import asyncio
+import ipaddress
 import logging
 import time
 from collections import defaultdict, deque
@@ -24,6 +32,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
+from app import querylog
 from app.config import SERVICE_NAME, SERVICE_VERSION, Settings, get_settings
 from app.embedder import embed_batch, embed_query
 from app.ingester import run_ingest
@@ -34,6 +43,7 @@ from app.models import (
     RefreshResponse,
     SearchRequest,
     SearchResponse,
+    StatsResponse,
 )
 from app.searcher import connect_collection, search
 
@@ -101,6 +111,61 @@ async def _periodic_refresh(app: FastAPI) -> None:
             logger.exception("periodic refresh pass failed; continuing")
 
 
+def _iso(ts: int) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
+
+async def _post_summary(app: FastAPI, window_seconds: int) -> None:
+    """Compute one window's summary from SQLite and POST it to the edge.
+
+    Count 0 still posts: the edge refreshes the card's last-known-good
+    and skips Discord, so quiet hours stay quiet without going stale.
+    """
+    settings: Settings = app.state.settings
+    until = int(time.time())
+    since = until - window_seconds
+    summary = await asyncio.to_thread(
+        querylog.window_summary, settings.query_log_path, since, until
+    )
+    totals = await asyncio.to_thread(querylog.stats, settings.query_log_path)
+    payload = {
+        "source": SERVICE_NAME,
+        "window_start": _iso(since),
+        "window_end": _iso(until),
+        "count": summary["count"],
+        "top_terms": summary["top_terms"],
+        "queries_today": totals["queries_today"],
+        "queries_total": totals["queries_total"],
+        "last_query_at": totals["last_query_at"],
+    }
+    response = await app.state.client.post(
+        settings.rag_report_url,
+        json=payload,
+        headers={"authorization": f"Bearer {settings.rag_report_key}"},
+        timeout=10.0,
+    )
+    logger.info(
+        "query summary posted: %d queries, edge answered %d",
+        summary["count"],
+        response.status_code,
+    )
+
+
+async def _periodic_query_summary(app: FastAPI) -> None:
+    """Hourly query summary loop; the window rides in the payload, so a
+    drifting start time can never corrupt the numbers. Every failure
+    logs and continues, because stats must never take down search."""
+    interval = app.state.settings.rag_summary_interval_seconds
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            await _post_summary(app, interval)
+        except asyncio.CancelledError:
+            return
+        except Exception:  # noqa: BLE001
+            logger.exception("query summary pass failed; continuing")
+
+
 # --------------------------------------------------------------------- #
 # App wiring                                                              #
 # --------------------------------------------------------------------- #
@@ -135,6 +200,13 @@ async def lifespan(app: FastAPI):
     periodic_task = None
     if settings.refresh_interval_seconds > 0:
         periodic_task = asyncio.create_task(_periodic_refresh(app))
+    summary_task = None
+    if (
+        settings.rag_report_key
+        and settings.rag_report_url
+        and settings.rag_summary_interval_seconds > 0
+    ):
+        summary_task = asyncio.create_task(_periodic_query_summary(app))
     logger.info("%s %s ready", SERVICE_NAME, SERVICE_VERSION)
     yield
     startup_ingest.cancel()
@@ -144,6 +216,10 @@ async def lifespan(app: FastAPI):
         periodic_task.cancel()
         with suppress(asyncio.CancelledError):
             await periodic_task
+    if summary_task:
+        summary_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await summary_task
     await app.state.client.aclose()
 
 
@@ -168,6 +244,33 @@ def _client_ip(request: Request) -> str:
     return request.headers.get("cf-connecting-ip") or (
         request.client.host if request.client else "unknown"
     )
+
+
+def _is_internal(request: Request) -> bool:
+    """True only for loopback or private callers carrying the internal
+    header. specular-sentinel's search canary must not pollute the query
+    log or spend the public rate budget; the header alone is spoofable
+    from the internet, the source address alone would exempt every LAN
+    client, so exemption requires both."""
+    if "x-atlas-internal" not in request.headers:
+        return False
+    ip = _client_ip(request)
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return addr.is_loopback or addr.is_private
+
+
+def _log_query_fire_and_forget(query: str, result_count: int, took_ms: int) -> None:
+    """Schedule the SQLite insert off the event loop and move on; the
+    logger swallows its own failures, the callback just retrieves any
+    exception so asyncio never warns about an unconsumed one."""
+    path = app.state.settings.query_log_path
+    task = asyncio.create_task(
+        asyncio.to_thread(querylog.log_query, path, query, result_count, took_ms)
+    )
+    task.add_done_callback(lambda t: t.exception())
 
 
 def _rate_limit(app: FastAPI, ip: str) -> None:
@@ -197,17 +300,18 @@ def root() -> RedirectResponse:
 
 async def _run_search(payload: SearchRequest, request: Request) -> SearchResponse:
     """Shared search path for browser POSTs and URL/query-string GETs."""
-    _rate_limit(app, _client_ip(request))
+    internal = _is_internal(request)
+    if not internal:
+        _rate_limit(app, _client_ip(request))
     settings: Settings = app.state.settings
     started = time.time()
     embedding = await embed_query(app.state.client, settings, payload.query)
     k = min(payload.top_k or settings.top_k_default, settings.top_k_max)
     hits = search(app.state.collection, embedding, k)
-    return SearchResponse(
-        query=payload.query,
-        hits=hits,
-        took_ms=int((time.time() - started) * 1000),
-    )
+    took_ms = int((time.time() - started) * 1000)
+    if not internal:
+        _log_query_fire_and_forget(payload.query, len(hits), took_ms)
+    return SearchResponse(query=payload.query, hits=hits, took_ms=took_ms)
 
 
 @app.post("/search", response_model=SearchResponse)
@@ -241,6 +345,18 @@ def index_listing() -> IndexResponse:
         total_chunks=sum(entry.chunks for entry in entries),
         last_refresh=app.state.last_refresh,
     )
+
+
+@app.get("/stats", response_model=StatsResponse)
+async def query_stats() -> StatsResponse:
+    """Aggregate query counts; public because it exposes numbers only.
+
+    Top terms deliberately stay out of this response: they surface in
+    the private hourly Discord summary and nowhere else."""
+    totals = await asyncio.to_thread(
+        querylog.stats, app.state.settings.query_log_path
+    )
+    return StatsResponse(**totals, generated_at=_iso(int(time.time())))
 
 
 @app.post("/refresh", response_model=RefreshResponse, status_code=202)

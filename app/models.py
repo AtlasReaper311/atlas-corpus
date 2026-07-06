@@ -56,6 +56,17 @@ class RefreshResponse(BaseModel):
     last_refresh: str | None
 
 
+class StatsResponse(BaseModel):
+    """Aggregate query counts; query text and client identity stay out
+    by design (aggregates are publishable, visitor queries are not)."""
+
+    queries_last_hour: int
+    queries_today: int
+    queries_total: int
+    last_query_at: str | None
+    generated_at: str
+
+
 class HealthResponse(BaseModel):
     """Service health plus dependency reachability."""
 
