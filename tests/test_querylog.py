@@ -6,8 +6,8 @@ import time
 import unittest
 from pathlib import Path
 
+from app.index_state import restore_index_from_collection
 from app import querylog
-from app.main import _restore_index_from_collection
 
 
 class QueryLogTests(unittest.TestCase):
@@ -78,7 +78,7 @@ class FakeCollection:
 
 class StartupIndexTests(unittest.TestCase):
     def test_restore_index_from_persisted_metadata(self):
-        index = _restore_index_from_collection(FakeCollection())
+        index = restore_index_from_collection(FakeCollection())
         self.assertEqual(len(index), 1)
         self.assertEqual(index["repo:README.md"]["chunks"], 2)
         self.assertEqual(index["repo:README.md"]["last_updated"], "2026-07-07T09:01:00Z")

@@ -35,6 +35,7 @@ from fastapi.responses import RedirectResponse
 from app import querylog
 from app.config import SERVICE_NAME, SERVICE_VERSION, Settings, get_settings
 from app.embedder import embed_batch, embed_query
+from app.index_state import restore_index_from_collection as _restore_index_from_collection
 from app.ingester import run_ingest
 from app.models import (
     HealthResponse,
@@ -117,34 +118,6 @@ async def _delayed_startup_refresh(app: FastAPI) -> None:
     if delay > 0:
         await asyncio.sleep(delay)
     await _refresh(app, reason="startup")
-
-
-def _restore_index_from_collection(collection) -> dict[str, dict]:
-    """Rebuild the in-memory /index from persisted Chroma metadata."""
-    try:
-        rows = collection.get(include=["metadatas"])
-    except Exception:  # noqa: BLE001
-        logger.exception("could not restore corpus index from Chroma")
-        return {}
-    index: dict[str, dict] = {}
-    for meta in rows.get("metadatas") or []:
-        if not meta:
-            continue
-        key = str(meta.get("doc_key") or f"{meta.get('source_repo')}:{meta.get('file_path')}")
-        entry = index.setdefault(
-            key,
-            {
-                "source_repo": str(meta.get("source_repo", "")),
-                "file_path": str(meta.get("file_path", "")),
-                "doc_type": str(meta.get("doc_type", "")),
-                "chunks": 0,
-                "last_updated": str(meta.get("last_updated", "")),
-            },
-        )
-        entry["chunks"] += 1
-        if str(meta.get("last_updated", "")) > entry["last_updated"]:
-            entry["last_updated"] = str(meta.get("last_updated", ""))
-    return index
 
 
 def _iso(ts: int) -> str:
