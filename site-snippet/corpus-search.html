@@ -159,7 +159,7 @@
         function tryNext(lastError) {
           if (index >= endpoints.length) throw lastError;
           var endpoint = endpoints[index++];
-          var url = endpoint + "?q=" + encodeURIComponent(query) + "&top_k=5";
+          var url = endpoint + "?q=" + encodeURIComponent(query) + "&top_k=3";
           return fetch(url, { cache: "no-store" })
             .then(function (response) {
               if (response.status === 429) throw new Error("rate limited; wait a minute");

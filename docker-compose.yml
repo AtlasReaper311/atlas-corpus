@@ -34,6 +34,7 @@ services:
     environment:
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+      - ANSWER_MODEL=${ANSWER_MODEL:-mistral:7b}
       - EMBED_BATCH_SIZE=${EMBED_BATCH_SIZE:-16}
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000

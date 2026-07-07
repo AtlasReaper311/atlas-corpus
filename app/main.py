@@ -23,7 +23,6 @@ so monitoring never pollutes the stats it sits beside.
 import asyncio
 import html
 import ipaddress
-import json
 import logging
 import re
 import time
@@ -329,21 +328,13 @@ def _source_from_hit(hit, limit: int = 260) -> AskSource:
     )
 
 
-def _extract_json_object(text: str) -> dict:
-    """Ollama may wrap JSON in prose; recover the first object if needed."""
-    try:
-        parsed = json.loads(text)
-        return parsed if isinstance(parsed, dict) else {}
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            return {}
-        try:
-            parsed = json.loads(text[start : end + 1])
-            return parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            return {}
+def _prompt_excerpt(text: str, limit: int = 520) -> str:
+    """Keep public /ask under Cloudflare's response timeout budget."""
+    cleaned = html.unescape(re.sub(r"<[^>]+>", " ", text))
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1].rstrip() + "..."
 
 
 def _answer_declines(answer: str) -> bool:
@@ -362,6 +353,31 @@ def _answer_declines(answer: str) -> bool:
             "not enough information",
             "without guessing",
         )
+    )
+
+
+def _fallback_answer_from_hits(hits) -> AskResponse:
+    if not hits:
+        return AskResponse(
+            answer="I could not find anything in the corpus excerpts that answers that question.",
+            sources=[],
+        )
+    best_score = max(float(hit.score) for hit in hits)
+    if best_score < 0.5:
+        return AskResponse(
+            answer="The retrieved corpus excerpts do not answer that question clearly enough for me to answer without guessing.",
+            sources=[],
+        )
+    sources = [_source_from_hit(hit) for hit in hits[:2]]
+    facts = " ".join(source.excerpt for source in sources)
+    if len(facts) > 420:
+        facts = facts[:419].rstrip() + "..."
+    return AskResponse(
+        answer=(
+            "Answer synthesis did not finish before the public request timeout, "
+            f"but the closest corpus excerpts say: {facts}"
+        ),
+        sources=sources,
     )
 
 
@@ -386,55 +402,38 @@ async def _answer_from_hits(
         source_lines.append(
             f"[{index}] repo: {source.repo}\n"
             f"file: {source.file}\n"
-            f"excerpt: {hit.text}"
+            f"excerpt: {_prompt_excerpt(hit.text)}"
         )
 
-    system_prompt = (
-        "You answer questions about Atlas Systems using only the provided excerpts. "
-        "If the excerpts do not actually answer the question, say that clearly and do "
-        "not guess. Write plain prose, not markdown tables. Cite every factual claim "
-        "with bracketed source numbers like [1], and name the repo/file when useful. "
-        "Return only JSON with this shape: "
-        '{"answer":"...", "source_ids":[1,2]}.'
+    prompt = (
+        "Answer using only these excerpts. If they do not answer the question, "
+        "say that plainly. Return at most two complete sentences. "
+        "Cite facts with [1], [2], etc.\n\n"
+        f"Question: {question}\n\nExcerpts:\n\n"
+        + "\n\n".join(source_lines)
     )
-    user_prompt = (
-        f"Question: {question}\n\n"
-        "Excerpts:\n\n"
-        + "\n\n---\n\n".join(source_lines)
-    )
-    response = await client.post(
-        f"{settings.ollama_host}/api/chat",
-        json={
-            "model": settings.answer_model,
-            "format": "json",
-            "stream": False,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "options": {"temperature": 0.0},
-        },
-        timeout=settings.answer_timeout_seconds,
-    )
+    try:
+        response = await client.post(
+            f"{settings.ollama_host}/api/generate",
+            json={
+                "model": settings.answer_model,
+                "prompt": prompt,
+                "stream": False,
+                "keep_alive": "30m",
+                "options": {"temperature": 0.0, "num_ctx": 2048, "num_predict": 140},
+            },
+            timeout=min(settings.answer_timeout_seconds, 55.0),
+        )
+    except httpx.TimeoutException:
+        return _fallback_answer_from_hits(hits)
     response.raise_for_status()
-    content = response.json().get("message", {}).get("content", "")
-    parsed = _extract_json_object(content)
-    answer = str(parsed.get("answer") or "").strip()
+    answer = str(response.json().get("response") or "").strip()
     if not answer:
         answer = (
             "The retrieved corpus excerpts do not answer that question clearly enough for me to answer without guessing."
         )
-    source_ids = parsed.get("source_ids") or []
     selected_sources: list[AskSource] = []
     declined = _answer_declines(answer)
-    if isinstance(source_ids, list) and not declined:
-        for source_id in source_ids:
-            try:
-                source = sources_by_id[int(source_id)]
-            except (KeyError, TypeError, ValueError):
-                continue
-            if source not in selected_sources:
-                selected_sources.append(source)
     if not selected_sources and not declined:
         selected_sources = [_source_from_hit(hit) for hit in hits[:3]]
     return AskResponse(answer=answer, sources=selected_sources)
