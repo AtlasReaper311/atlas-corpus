@@ -24,8 +24,10 @@ class Settings(BaseSettings):
     # the host gateway; extra_hosts maps it on native Linux too.
     ollama_host: str = "http://host.docker.internal:11434"
     embed_model: str = "nomic-embed-text"
+    answer_model: str = "qwen2.5:32b"
     embed_batch_size: int = 16
     embed_timeout_seconds: float = 120.0
+    answer_timeout_seconds: float = 180.0
     health_timeout_seconds: float = 5.0
 
     chroma_host: str = "chromadb"

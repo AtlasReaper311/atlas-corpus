@@ -53,6 +53,9 @@ curl -sS http://localhost:8092/index | head -c 600
 curl -sS -X POST http://localhost:8092/search \
   -H "Content-Type: application/json" \
   -d '{"query": "why do routes use zone_id instead of zone_name?"}'
+curl -sS -X POST http://localhost:8092/ask \
+  -H "Content-Type: application/json" \
+  -d '{"query": "how do deploys get to Cloudflare?"}'
 ```
 
 Drop the brand and context documents into `docs/` (gitignored, mounted read-only) and refresh; they ingest as `doc_type: doc`.
@@ -88,13 +91,14 @@ Set the secret once per repo (`gh secret set CORPUS_SECRET --repo ...`). A corpu
 
 ### The widget
 
-Paste the whole of [`site-snippet/corpus-search.html`](site-snippet/corpus-search.html) where search should live. Scoped under `.cs-w`, inherits the site's variables, renders source repo, path, doc type, score, and excerpt per hit.
+Paste the whole of [`site-snippet/corpus-search.html`](site-snippet/corpus-search.html) where corpus Q&A should live. Scoped under `.cs-w`, inherits the site's variables, calls `/ask`, renders the synthesized prose answer, and shows cited repo/file tags underneath. `/search` stays available for callers that need raw retrieved chunks.
 
 ## Endpoints
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | `POST` | `/search` | none (rate-limited) | Semantic search: `{query, top_k?}` → hits with provenance |
+| `GET/POST` | `/ask` | none (rate-limited) | Grounded Q&A: retrieve top-k chunks, synthesize with Ollama, return `{answer, sources}` |
 | `GET` | `/index` | none | Every indexed document with chunk counts and last update |
 | `POST` | `/refresh` | `x-corpus-secret` | Start a re-ingest; answers 202 immediately |
 | `GET` | `/health` | none | Service, Chroma, Ollama status, corpus size |

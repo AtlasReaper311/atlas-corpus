@@ -30,6 +30,21 @@ class SearchResponse(BaseModel):
     took_ms: int
 
 
+class AskSource(BaseModel):
+    """One source excerpt that supports a synthesized answer."""
+
+    repo: str
+    file: str
+    excerpt: str
+
+
+class AskResponse(BaseModel):
+    """A plain-language answer grounded in retrieved corpus excerpts."""
+
+    answer: str
+    sources: list[AskSource]
+
+
 class IndexEntry(BaseModel):
     """One indexed document with its chunk count."""
 

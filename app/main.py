@@ -21,8 +21,11 @@ so monitoring never pollutes the stats it sits beside.
 """
 
 import asyncio
+import html
 import ipaddress
+import json
 import logging
+import re
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager, suppress
@@ -38,6 +41,8 @@ from app.embedder import embed_batch, embed_query
 from app.index_state import restore_index_from_collection as _restore_index_from_collection
 from app.ingester import run_ingest
 from app.models import (
+    AskResponse,
+    AskSource,
     HealthResponse,
     IndexEntry,
     IndexResponse,
@@ -307,6 +312,134 @@ def _rate_limit(app: FastAPI, ip: str) -> None:
     bucket.append(now)
 
 
+def _display_excerpt(text: str, limit: int = 260) -> str:
+    """Compact retrieved text for source tags without changing retrieval."""
+    cleaned = html.unescape(re.sub(r"<[^>]+>", " ", text))
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1].rstrip() + "..."
+
+
+def _source_from_hit(hit, limit: int = 260) -> AskSource:
+    return AskSource(
+        repo=hit.source_repo,
+        file=hit.file_path,
+        excerpt=_display_excerpt(hit.text, limit=limit),
+    )
+
+
+def _extract_json_object(text: str) -> dict:
+    """Ollama may wrap JSON in prose; recover the first object if needed."""
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return {}
+        try:
+            parsed = json.loads(text[start : end + 1])
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
+
+def _answer_declines(answer: str) -> bool:
+    lowered = answer.lower()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "do not contain",
+            "does not contain",
+            "don't contain",
+            "do not answer",
+            "does not answer",
+            "cannot answer",
+            "can't answer",
+            "could not find",
+            "not enough information",
+            "without guessing",
+        )
+    )
+
+
+async def _answer_from_hits(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    question: str,
+    hits,
+) -> AskResponse:
+    """Ask Ollama for a grounded answer over already-retrieved chunks."""
+    if not hits:
+        return AskResponse(
+            answer="I could not find anything in the corpus excerpts that answers that question.",
+            sources=[],
+        )
+
+    source_lines = []
+    sources_by_id = {}
+    for index, hit in enumerate(hits, start=1):
+        source = _source_from_hit(hit)
+        sources_by_id[index] = source
+        source_lines.append(
+            f"[{index}] repo: {source.repo}\n"
+            f"file: {source.file}\n"
+            f"excerpt: {hit.text}"
+        )
+
+    system_prompt = (
+        "You answer questions about Atlas Systems using only the provided excerpts. "
+        "If the excerpts do not actually answer the question, say that clearly and do "
+        "not guess. Write plain prose, not markdown tables. Cite every factual claim "
+        "with bracketed source numbers like [1], and name the repo/file when useful. "
+        "Return only JSON with this shape: "
+        '{"answer":"...", "source_ids":[1,2]}.'
+    )
+    user_prompt = (
+        f"Question: {question}\n\n"
+        "Excerpts:\n\n"
+        + "\n\n---\n\n".join(source_lines)
+    )
+    response = await client.post(
+        f"{settings.ollama_host}/api/chat",
+        json={
+            "model": settings.answer_model,
+            "format": "json",
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "options": {"temperature": 0.0},
+        },
+        timeout=settings.answer_timeout_seconds,
+    )
+    response.raise_for_status()
+    content = response.json().get("message", {}).get("content", "")
+    parsed = _extract_json_object(content)
+    answer = str(parsed.get("answer") or "").strip()
+    if not answer:
+        answer = (
+            "The retrieved corpus excerpts do not answer that question clearly enough for me to answer without guessing."
+        )
+    source_ids = parsed.get("source_ids") or []
+    selected_sources: list[AskSource] = []
+    declined = _answer_declines(answer)
+    if isinstance(source_ids, list) and not declined:
+        for source_id in source_ids:
+            try:
+                source = sources_by_id[int(source_id)]
+            except (KeyError, TypeError, ValueError):
+                continue
+            if source not in selected_sources:
+                selected_sources.append(source)
+    if not selected_sources and not declined:
+        selected_sources = [_source_from_hit(hit) for hit in hits[:3]]
+    return AskResponse(answer=answer, sources=selected_sources)
+
+
 def _require_secret(request: Request) -> None:
     """Gate for mutating endpoints; compared against the fail-closed secret."""
     provided = request.headers.get("x-corpus-secret", "")
@@ -354,6 +487,32 @@ async def search_corpus_get(
     if not text:
         raise HTTPException(status_code=400, detail="query is required")
     return await _run_search(SearchRequest(query=text, top_k=top_k), request)
+
+
+@app.post("/ask", response_model=AskResponse)
+async def ask_corpus(payload: SearchRequest, request: Request) -> AskResponse:
+    """Public corpus Q&A: retrieve with /search, then synthesize with Ollama."""
+    search_response = await _run_search(payload, request)
+    return await _answer_from_hits(
+        app.state.client,
+        app.state.settings,
+        search_response.query,
+        search_response.hits,
+    )
+
+
+@app.get("/ask", response_model=AskResponse)
+async def ask_corpus_get(
+    request: Request,
+    q: str | None = Query(default=None, min_length=1, max_length=500),
+    query: str | None = Query(default=None, min_length=1, max_length=500),
+    top_k: int | None = Query(default=None, ge=1, le=10),
+) -> AskResponse:
+    """GET-compatible Q&A for the browser widget and no-preflight clients."""
+    text = q or query
+    if not text:
+        raise HTTPException(status_code=400, detail="query is required")
+    return await ask_corpus(SearchRequest(query=text, top_k=top_k), request)
 
 
 @app.get("/index", response_model=IndexResponse)
