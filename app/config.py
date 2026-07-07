@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     # Periodic re-ingest in seconds; 0 disables it because the push
     # trigger (github-trigger/) is the primary freshness mechanism.
     refresh_interval_seconds: int = 0
+    # Startup re-ingest is disabled by default. The persisted Chroma
+    # collection is restored immediately at boot, and push/manual
+    # refreshes own freshness. Set to 0 for immediate startup refresh,
+    # or a positive delay in seconds if a host needs warm-up time.
+    startup_refresh_delay_seconds: int = -1
 
     # Query logging and the hourly stats summary. SQLite on the data
     # volume, not KV at the edge: logging stays inside the hot path's

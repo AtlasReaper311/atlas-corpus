@@ -54,6 +54,7 @@ services:
       - RATE_LIMIT_PER_HOUR=${RATE_LIMIT_PER_HOUR:-60}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://atlas-systems.uk,https://www.atlas-systems.uk,http://localhost:8788}
       - REFRESH_INTERVAL_SECONDS=${REFRESH_INTERVAL_SECONDS:-0}
+      - STARTUP_REFRESH_DELAY_SECONDS=${STARTUP_REFRESH_DELAY_SECONDS:--1}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # Query logging and the hourly stats summary. An empty key keeps
       # the summariser off; logging itself is always on (local, free).

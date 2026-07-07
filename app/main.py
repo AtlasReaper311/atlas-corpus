@@ -111,6 +111,42 @@ async def _periodic_refresh(app: FastAPI) -> None:
             logger.exception("periodic refresh pass failed; continuing")
 
 
+async def _delayed_startup_refresh(app: FastAPI) -> None:
+    """Optional startup refresh after the service is already live."""
+    delay = app.state.settings.startup_refresh_delay_seconds
+    if delay > 0:
+        await asyncio.sleep(delay)
+    await _refresh(app, reason="startup")
+
+
+def _restore_index_from_collection(collection) -> dict[str, dict]:
+    """Rebuild the in-memory /index from persisted Chroma metadata."""
+    try:
+        rows = collection.get(include=["metadatas"])
+    except Exception:  # noqa: BLE001
+        logger.exception("could not restore corpus index from Chroma")
+        return {}
+    index: dict[str, dict] = {}
+    for meta in rows.get("metadatas") or []:
+        if not meta:
+            continue
+        key = str(meta.get("doc_key") or f"{meta.get('source_repo')}:{meta.get('file_path')}")
+        entry = index.setdefault(
+            key,
+            {
+                "source_repo": str(meta.get("source_repo", "")),
+                "file_path": str(meta.get("file_path", "")),
+                "doc_type": str(meta.get("doc_type", "")),
+                "chunks": 0,
+                "last_updated": str(meta.get("last_updated", "")),
+            },
+        )
+        entry["chunks"] += 1
+        if str(meta.get("last_updated", "")) > entry["last_updated"]:
+            entry["last_updated"] = str(meta.get("last_updated", ""))
+    return index
+
+
 def _iso(ts: int) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
 
@@ -190,13 +226,25 @@ async def lifespan(app: FastAPI):
     app.state.client = httpx.AsyncClient()
     await _wait_for_ollama(app.state.client, settings)
     app.state.collection = connect_collection(settings)
-    app.state.index = {}
+    app.state.index = _restore_index_from_collection(app.state.collection)
     app.state.last_refresh = None
-    app.state.last_stats = {}
+    app.state.last_stats = {
+        "documents": len(app.state.index),
+        "chunks": app.state.collection.count(),
+        "deleted": 0,
+        "skipped": 0,
+    }
     app.state.refresh_lock = asyncio.Lock()
     app.state.rate_buckets = defaultdict(deque)
 
-    startup_ingest = asyncio.create_task(_refresh(app, reason="startup"))
+    startup_ingest = None
+    if settings.startup_refresh_delay_seconds >= 0:
+        startup_ingest = asyncio.create_task(_delayed_startup_refresh(app))
+    else:
+        logger.info(
+            "startup refresh disabled; restored %d docs from persisted corpus",
+            len(app.state.index),
+        )
     periodic_task = None
     if settings.refresh_interval_seconds > 0:
         periodic_task = asyncio.create_task(_periodic_refresh(app))
@@ -209,9 +257,10 @@ async def lifespan(app: FastAPI):
         summary_task = asyncio.create_task(_periodic_query_summary(app))
     logger.info("%s %s ready", SERVICE_NAME, SERVICE_VERSION)
     yield
-    startup_ingest.cancel()
-    with suppress(asyncio.CancelledError):
-        await startup_ingest
+    if startup_ingest:
+        startup_ingest.cancel()
+        with suppress(asyncio.CancelledError):
+            await startup_ingest
     if periodic_task:
         periodic_task.cancel()
         with suppress(asyncio.CancelledError):
@@ -392,7 +441,7 @@ async def health() -> HealthResponse:
         version=SERVICE_VERSION,
         chroma_ok=chroma_ok,
         ollama_ok=ollama_ok,
-        documents=len(app.state.index),
+        documents=len(app.state.index) or int(app.state.last_stats.get("documents", 0)),
         chunks=chunks,
         refreshing=app.state.refresh_lock.locked(),
     )

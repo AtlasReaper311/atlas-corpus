@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from app import querylog
+from app.main import _restore_index_from_collection
 
 
 class QueryLogTests(unittest.TestCase):
@@ -51,3 +52,33 @@ class QueryLogTests(unittest.TestCase):
         querylog.log_query(bad, "q", 0, 1)  # must not raise
         self.assertEqual(querylog.stats(bad)["queries_total"], 0)
         self.assertEqual(querylog.window_summary(bad, 0, 1)["count"], 0)
+
+
+class FakeCollection:
+    def get(self, include=None):
+        return {
+            "metadatas": [
+                {
+                    "doc_key": "repo:README.md",
+                    "source_repo": "repo",
+                    "file_path": "README.md",
+                    "doc_type": "readme",
+                    "last_updated": "2026-07-07T09:00:00Z",
+                },
+                {
+                    "doc_key": "repo:README.md",
+                    "source_repo": "repo",
+                    "file_path": "README.md",
+                    "doc_type": "readme",
+                    "last_updated": "2026-07-07T09:01:00Z",
+                },
+            ]
+        }
+
+
+class StartupIndexTests(unittest.TestCase):
+    def test_restore_index_from_persisted_metadata(self):
+        index = _restore_index_from_collection(FakeCollection())
+        self.assertEqual(len(index), 1)
+        self.assertEqual(index["repo:README.md"]["chunks"], 2)
+        self.assertEqual(index["repo:README.md"]["last_updated"], "2026-07-07T09:01:00Z")
