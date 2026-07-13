@@ -88,10 +88,17 @@ PRIVATE_BOUNDARY_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"\b(secret|token|api key|password|credential|\.env|webhook value|trigger_secret|corpus_secret|github_token)\b",
+            r"\b(secrets?|tokens?|api keys?|passwords?|credentials?|\.env|webhook values?|trigger_secret|corpus_secret|github_token)\b",
             re.IGNORECASE,
         ),
         "That is secret or credential material. I can answer from the public Atlas Systems estate instead.",
+    ),
+    (
+        re.compile(
+            r"\b(private open webui collections?|private openwebui collections?|private collections?)\b",
+            re.IGNORECASE,
+        ),
+        "That is private collection material. I can answer from the public Atlas Systems estate instead.",
     ),
     (
         re.compile(
