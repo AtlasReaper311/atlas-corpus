@@ -57,6 +57,51 @@ logger = logging.getLogger(__name__)
 READINESS_ATTEMPTS = 30
 READINESS_DELAY_SECONDS = 2.0
 
+PRIVATE_BOUNDARY_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"\b(cv|curriculum vitae|resume|cover letter|salary|interview|job application|application material)\b",
+            re.IGNORECASE,
+        ),
+        "That is private application material. I can answer from the public Atlas Systems estate instead.",
+    ),
+    (
+        re.compile(
+            r"\b(university notes?|lecture notes?|study notes?|coursework|grades?|marks?|academic drafts?|honours drafts?|abertay)\b",
+            re.IGNORECASE,
+        ),
+        "That is private academic material. I can answer from the public Atlas Systems estate instead.",
+    ),
+    (
+        re.compile(
+            r"\b(books?|reading notes?|reference library|private library|licensed third-party text)\b",
+            re.IGNORECASE,
+        ),
+        "That is private reference material. I can answer from the public Atlas Systems estate instead.",
+    ),
+    (
+        re.compile(
+            r"\b(soh|employer material|employer code|employer meetings?|employer architecture|work macbook|colleagues?|slack|tickets?)\b",
+            re.IGNORECASE,
+        ),
+        "That is employer material. I can answer from the public Atlas Systems estate instead.",
+    ),
+    (
+        re.compile(
+            r"\b(secret|token|api key|password|credential|\.env|webhook value|trigger_secret|corpus_secret|github_token)\b",
+            re.IGNORECASE,
+        ),
+        "That is secret or credential material. I can answer from the public Atlas Systems estate instead.",
+    ),
+    (
+        re.compile(
+            r"\b(what did atlas ask you to remember|what did atlas tell you to remember|remember to help|remember this today|private memory|ramone_memory)\b",
+            re.IGNORECASE,
+        ),
+        "That is private memory. I can answer from the public Atlas Systems estate instead.",
+    ),
+)
+
 
 async def _wait_for_ollama(client: httpx.AsyncClient, settings: Settings) -> None:
     """Block until Ollama answers /api/tags, or raise after the budget."""
@@ -299,6 +344,18 @@ def _log_query_fire_and_forget(query: str, result_count: int, took_ms: int) -> N
     task.add_done_callback(lambda t: t.exception())
 
 
+def _private_boundary_refusal(query: str) -> str | None:
+    """Public corpus guard for obvious private-material requests.
+
+    This does not replace retrieval boundaries; it stops short sensitive
+    queries from depending on vector ranking to find the refusal document.
+    """
+    for pattern, answer in PRIVATE_BOUNDARY_RULES:
+        if pattern.search(query):
+            return answer
+    return None
+
+
 def _rate_limit(app: FastAPI, ip: str) -> None:
     """Sliding one-hour window per IP; over the cap answers 429."""
     limit = app.state.settings.rate_limit_per_hour
@@ -320,21 +377,63 @@ def _display_excerpt(text: str, limit: int = 260) -> str:
     return cleaned[: limit - 1].rstrip() + "..."
 
 
-def _source_from_hit(hit, limit: int = 260) -> AskSource:
+def _source_from_hit(
+    hit,
+    limit: int = 260,
+    question: str | None = None,
+) -> AskSource:
     return AskSource(
         repo=hit.source_repo,
         file=hit.file_path,
-        excerpt=_display_excerpt(hit.text, limit=limit),
+        excerpt=(
+            _prompt_excerpt(hit.text, question, limit=limit)
+            if question
+            else _display_excerpt(hit.text, limit=limit)
+        ),
     )
 
 
-def _prompt_excerpt(text: str, limit: int = 520) -> str:
-    """Keep public /ask under Cloudflare's response timeout budget."""
+def _prompt_excerpt(text: str, question: str | None = None, limit: int = 900) -> str:
+    """Keep /ask compact while showing the part most likely to answer."""
     cleaned = html.unescape(re.sub(r"<[^>]+>", " ", text))
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if len(cleaned) <= limit:
         return cleaned
-    return cleaned[: limit - 1].rstrip() + "..."
+
+    focus = 0
+    if question:
+        stopwords = {
+            "about",
+            "does",
+            "from",
+            "have",
+            "what",
+            "when",
+            "where",
+            "which",
+            "with",
+            "would",
+        }
+        raw_terms = [
+            term.lower()
+            for term in re.findall(r"[A-Za-z0-9_-]{4,}", question)
+            if term.lower() not in stopwords
+        ]
+        domain_terms = {"atlas", "public", "ramone", "systems"}
+        specific_terms = [term for term in raw_terms if term not in domain_terms]
+        terms = specific_terms or raw_terms
+        lower = cleaned.lower()
+        positions = [(lower.find(term), term) for term in terms]
+        matches = [(pos, term) for pos, term in positions if pos >= 0]
+        if matches:
+            # Prefer the most specific matching term, then center around it.
+            pos, term = max(matches, key=lambda item: (len(item[1]), -item[0]))
+            focus = max(0, pos - max(80, limit // 4))
+
+    snippet = cleaned[focus : focus + limit].strip()
+    prefix = "..." if focus else ""
+    suffix = "..." if focus + limit < len(cleaned) else ""
+    return f"{prefix}{snippet}{suffix}"
 
 
 def _answer_declines(answer: str) -> bool:
@@ -402,7 +501,7 @@ async def _answer_from_hits(
         source_lines.append(
             f"[{index}] repo: {source.repo}\n"
             f"file: {source.file}\n"
-            f"excerpt: {_prompt_excerpt(hit.text)}"
+            f"excerpt: {_prompt_excerpt(hit.text, question)}"
         )
 
     prompt = (
@@ -435,7 +534,7 @@ async def _answer_from_hits(
     selected_sources: list[AskSource] = []
     declined = _answer_declines(answer)
     if not selected_sources and not declined:
-        selected_sources = [_source_from_hit(hit) for hit in hits[:3]]
+        selected_sources = [_source_from_hit(hit, question=question) for hit in hits[:3]]
     return AskResponse(answer=answer, sources=selected_sources)
 
 
@@ -459,6 +558,10 @@ async def _run_search(payload: SearchRequest, request: Request) -> SearchRespons
         _rate_limit(app, _client_ip(request))
     settings: Settings = app.state.settings
     started = time.time()
+    if not internal and _private_boundary_refusal(payload.query):
+        took_ms = int((time.time() - started) * 1000)
+        _log_query_fire_and_forget(payload.query, 0, took_ms)
+        return SearchResponse(query=payload.query, hits=[], took_ms=took_ms)
     embedding = await embed_query(app.state.client, settings, payload.query)
     k = min(payload.top_k or settings.top_k_default, settings.top_k_max)
     hits = search(app.state.collection, embedding, k)
@@ -491,6 +594,11 @@ async def search_corpus_get(
 @app.post("/ask", response_model=AskResponse)
 async def ask_corpus(payload: SearchRequest, request: Request) -> AskResponse:
     """Public corpus Q&A: retrieve with /search, then synthesize with Ollama."""
+    if not _is_internal(request):
+        refusal = _private_boundary_refusal(payload.query)
+        if refusal:
+            _log_query_fire_and_forget(payload.query, 0, 0)
+            return AskResponse(answer=refusal, sources=[])
     search_response = await _run_search(payload, request)
     return await _answer_from_hits(
         app.state.client,

@@ -4,6 +4,17 @@
 # Local documents are personal source material, not repo content.
 docs/*
 !docs/.gitkeep
+!docs/Atlas_Systems_-context.md
+!docs/atlas-brand.md
+!docs/atlas-cv-private-boundary.md
+!docs/atlas-public-boundaries.md
+!docs/atlas-public-case-studies.md
+!docs/atlas-public-context.md
+!docs/atlas-public-retrieval-map.md
+!docs/atlas-public-service-map.md
+!docs/ramone-public-context.md
+!docs/ramone-public-faq.md
+!docs/specular-core-public-profile.md
 
 # Python
 __pycache__/
