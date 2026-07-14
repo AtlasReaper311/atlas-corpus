@@ -50,7 +50,8 @@ from app.models import (
     SearchResponse,
     StatsResponse,
 )
-from app.searcher import connect_collection, search
+from app.hybrid import HybridIndex
+from app.searcher import connect_collection, search, hybrid_search
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +256,7 @@ async def lifespan(app: FastAPI):
     app.state.client = httpx.AsyncClient()
     await _wait_for_ollama(app.state.client, settings)
     app.state.collection = connect_collection(settings)
+    app.state.hybrid_index = HybridIndex()
     app.state.index = _restore_index_from_collection(app.state.collection)
     app.state.last_refresh = None
     app.state.last_stats = {
@@ -571,7 +573,14 @@ async def _run_search(payload: SearchRequest, request: Request) -> SearchRespons
         return SearchResponse(query=payload.query, hits=[], took_ms=took_ms)
     embedding = await embed_query(app.state.client, settings, payload.query)
     k = min(payload.top_k or settings.top_k_default, settings.top_k_max)
-    hits = search(app.state.collection, embedding, k)
+    hits = hybrid_search(
+        app.state.collection,
+        app.state.hybrid_index,
+        embedding,
+        payload.query,
+        k,
+        freshness_marker=app.state.last_refresh,
+    )
     took_ms = int((time.time() - started) * 1000)
     if not internal:
         _log_query_fire_and_forget(payload.query, len(hits), took_ms)

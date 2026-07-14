@@ -24,6 +24,7 @@ from pathlib import Path
 import httpx
 from chromadb.api.models.Collection import Collection
 
+from app.chunking import chunk_document
 from app.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -267,7 +268,10 @@ async def run_ingest(
     index: dict[str, dict] = {}
 
     for repo, path, doc_type, text in documents:
-        chunks = chunk_words(text, settings.chunk_words, settings.chunk_overlap_words)
+        chunk_objs = chunk_document(
+            path, text, doc_type, settings.chunk_words, settings.chunk_overlap_words
+        )
+        chunks = [chunk.text for chunk in chunk_objs]
         if not chunks:
             stats["skipped"] += 1
             continue
@@ -285,6 +289,7 @@ async def run_ingest(
                     "doc_type": doc_type,
                     "last_updated": now_iso,
                     "chunk_index": i,
+                    **chunk_objs[i].metadata,
                 }
                 for i in range(len(chunks))
             ],

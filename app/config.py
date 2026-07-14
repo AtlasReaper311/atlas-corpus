@@ -12,7 +12,7 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVICE_NAME = "atlas-corpus"
-SERVICE_VERSION = "1.1.0"
+SERVICE_VERSION = "1.2.0"
 
 
 class Settings(BaseSettings):
