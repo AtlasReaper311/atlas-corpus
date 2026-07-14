@@ -24,6 +24,7 @@ from pathlib import Path
 import httpx
 from chromadb.api.models.Collection import Collection
 
+from app.adr import gather_adrs
 from app.chunking import chunk_document
 from app.config import Settings
 
@@ -262,6 +263,7 @@ async def run_ingest(
     started = time.time()
     gh = GitHub(client, settings)
     documents = await _gather_documents(gh, settings)
+    documents.extend(await gather_adrs(client, settings))
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     stats = IngestStats(documents=0, chunks=0, deleted=0, skipped=0)

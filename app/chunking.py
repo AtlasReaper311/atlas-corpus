@@ -53,6 +53,16 @@ _CODE_LANGUAGES = {
 
 def chunk_document(path: str, text: str, doc_type: str, size: int, overlap: int) -> list[Chunk]:
     """Split one document by the strategy its type calls for."""
+    if doc_type == "adr":
+        from app.adr import AdrError, chunk_adr
+
+        try:
+            return chunk_adr(text, size, overlap)
+        except AdrError:
+            return [
+                Chunk(part.text, {**part.metadata, "chunk_type": "adr"})
+                for part in _chunk_markdown(text, size, overlap)
+            ]
     suffix = PurePosixPath(path).suffix.lower()
     if suffix == ".py":
         return _chunk_python(text, size, overlap)
