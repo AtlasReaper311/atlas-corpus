@@ -12,7 +12,7 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVICE_NAME = "atlas-corpus"
-SERVICE_VERSION = "1.2.0"
+SERVICE_VERSION = "1.3.0"
 
 
 class Settings(BaseSettings):
@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     article_prefix: str = "writing/"
     # Pinned extra files, "repo:path:doc_type" comma-separated.
     extra_files: str = "atlas-infra:docs/decisions.md:decision"
+    adr_repo: str = "atlas-infra"
+    adr_prefix: str = "docs/adrs"
     # Local documents (the brand doc, the context doc) mounted read-only.
     docs_dir: str = "/srv/docs"
 
