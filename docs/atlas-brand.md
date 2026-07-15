@@ -1,4 +1,4 @@
-# Atlas Systems — Brand Reference
+# Atlas Systems: Brand Reference
 
 ## Colours
 
@@ -12,7 +12,7 @@
 | `--text`       | `#e8e8e0`                | Primary text                             |
 | `--text-dim`   | `#aaa9a0`                | Secondary / body text                    |
 | `--text-faint` | `#555560`                | Labels, metadata, placeholders           |
-| `--accent`     | `#f5a623`                | Amber — interactive elements, highlights |
+| `--accent`     | `#f5a623`                | Amber for interactive elements and highlights |
 | `--accent-dim` | `rgba(245,166,35,0.12)`  | Accent backgrounds (active states)       |
 | Grid lines     | `rgba(255,255,255,0.03)` | Background grid pattern                  |
 | Status green   | `#4ade80`                | Live / active indicators                 |
@@ -27,8 +27,8 @@
 | --------------- | ------------------ | ---------------------- |
 | Headings        | `DM Serif Display` | 400 (regular + italic) |
 | Everything else | `IBM Plex Mono`    | 400, 500               |
-| Fallback serif  | `Georgia`          | —                      |
-| Fallback mono   | `monospace`        | —                      |
+| Fallback serif  | `Georgia`          | n/a                    |
+| Fallback mono   | `monospace`        | n/a                    |
 
 Google Fonts import:
 
