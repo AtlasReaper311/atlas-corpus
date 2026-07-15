@@ -26,6 +26,9 @@ on:
       CORPUS_SECRET:
         required: true
 
+permissions:
+  contents: none
+
 concurrency:
   group: ${{ github.repository }}-refresh-corpus-${{ github.ref }}
   cancel-in-progress: false
