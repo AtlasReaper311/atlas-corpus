@@ -30,7 +30,7 @@ permissions:
   contents: none
 
 concurrency:
-  group: ${{ github.repository }}-refresh-corpus-${{ github.ref }}
+  group: atlas-corpus-reusable-refresh-${{ github.repository }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
