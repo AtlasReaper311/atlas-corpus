@@ -1,18 +1,15 @@
 # atlas-corpus
 #
-# One command to a queryable corpus:  docker compose up --build -d
+# One command to a queryable corpus: docker compose up --build -d
 #
-# Two services: a pinned Chroma vector store and the FastAPI corpus
-# built from this repo. Ollama stays on the host (it owns the GPU);
-# the container reaches it through host.docker.internal, mapped on
-# native Linux by extra_hosts.
+# Two services: a pinned Chroma vector store and the FastAPI corpus built from
+# this repo. Ollama stays on the host; the container reaches it through
+# host.docker.internal.
 
 name: atlas-corpus
 
 services:
   chromadb:
-    # Server image pinned to match the chromadb client pin in
-    # requirements.txt. Bump both together.
     image: chromadb/chroma:0.5.23
     restart: unless-stopped
     environment:
@@ -20,9 +17,6 @@ services:
       - ANONYMIZED_TELEMETRY=FALSE
     volumes:
       - corpus-chroma:/chroma/chroma
-    # No host port on purpose: 8000 belongs to the rag stack. This
-    # Chroma lives on the compose network only.
-    # No healthcheck: the image lacks curl; the app owns readiness.
 
   corpus:
     build: .
@@ -46,7 +40,6 @@ services:
       - CASE_STUDY_PREFIX=${CASE_STUDY_PREFIX:-work/}
       - ARTICLE_PREFIX=${ARTICLE_PREFIX:-writing/}
       - EXTRA_FILES=${EXTRA_FILES:-atlas-infra:docs/decisions.md:decision}
-      - DOCS_DIR=/srv/docs
       - CHUNK_WORDS=${CHUNK_WORDS:-512}
       - CHUNK_OVERLAP_WORDS=${CHUNK_OVERLAP_WORDS:-64}
       - TOP_K_DEFAULT=${TOP_K_DEFAULT:-5}
@@ -57,26 +50,14 @@ services:
       - REFRESH_INTERVAL_SECONDS=${REFRESH_INTERVAL_SECONDS:-0}
       - STARTUP_REFRESH_DELAY_SECONDS=${STARTUP_REFRESH_DELAY_SECONDS:--1}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # Query logging and the hourly stats summary. An empty key keeps
-      # the summariser off; logging itself is always on (local, free).
       - QUERY_LOG_PATH=${QUERY_LOG_PATH:-/srv/data/queries.db}
       - RAG_REPORT_URL=${RAG_REPORT_URL:-https://api.atlas-systems.uk/v1/rag/report}
       - RAG_REPORT_KEY=${RAG_REPORT_KEY:-}
       - RAG_SUMMARY_INTERVAL_SECONDS=${RAG_SUMMARY_INTERVAL_SECONDS:-3600}
-      # Fail-closed: the stack refuses to start without a secret, same
-      # rule as the rag stack's ATLAS_SECRET.
       - CORPUS_SECRET=${CORPUS_SECRET:?CORPUS_SECRET must be set; generate with `python -c "import secrets; print(secrets.token_urlsafe(48))"`}
     volumes:
-      # Read-only: ingest consumes the brand and context docs, it must
-      # never be able to touch the originals.
-      - ./docs:/srv/docs:ro
-      # The query log. Named volume so `compose down` keeps the data;
-      # the image pre-creates /srv/data owned by the corpus user so the
-      # volume never initialises root-owned.
       - corpus-data:/srv/data
     extra_hosts:
-      # Docker Desktop provides host.docker.internal natively; native
-      # Linux does not. host-gateway makes the name resolve everywhere.
       - "host.docker.internal:host-gateway"
 
 volumes:

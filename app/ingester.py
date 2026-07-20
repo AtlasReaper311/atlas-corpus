@@ -1,16 +1,18 @@
-"""Document ingestion: GitHub sources, local docs, chunking, upsert.
+"""Public-source document ingestion for the Atlas Systems corpus.
 
 Sources, in ingest order:
-  1. Every non-fork, non-archived repo's README (doc_type: readme)
-  2. Pinned extra files, e.g. atlas-infra decisions.md (doc_type: decision)
-  3. Site HTML under work/ and writing/ (case-study / article)
-  4. Local files mounted at /srv/docs (doc_type: doc), for the brand
-     and context documents that live outside any public repo
+  1. Every non-fork, non-archived public repository README
+  2. Explicit pinned files from public repositories
+  3. Published site HTML under work/ and writing/
+  4. Public architecture decision records
 
-Chunk ids are deterministic (sha1 of repo:path:index), so re-ingest is
-an upsert: unchanged chunks overwrite themselves, and any chunk index
-beyond the document's new length is deleted. The corpus therefore
-converges on the truth of the sources rather than accreting history.
+Local mounted context documents are intentionally not ingested. The corpus is a
+public projection, so authenticated or owner-local material must never become a
+search source merely because it is available on the host.
+
+Chunk ids are deterministic. Each refresh also removes chunks whose source
+document is no longer in the approved source set, so tightening the publication
+boundary removes old material instead of leaving it stranded in Chroma.
 """
 
 import hashlib
@@ -19,7 +21,6 @@ import logging
 import time
 from base64 import b64decode
 from html.parser import HTMLParser
-from pathlib import Path
 
 import httpx
 from chromadb.api.models.Collection import Collection
@@ -29,17 +30,11 @@ from app.chunking import chunk_document
 from app.config import Settings
 
 logger = logging.getLogger(__name__)
-
 GITHUB_API = "https://api.github.com"
 
 
 class IngestStats(dict):
     """Counters for one ingest pass; a dict so it JSON-serialises as-is."""
-
-
-# --------------------------------------------------------------------- #
-# GitHub access                                                           #
-# --------------------------------------------------------------------- #
 
 
 class GitHub:
@@ -63,7 +58,7 @@ class GitHub:
         return response
 
     async def list_repos(self, owner: str) -> list[dict]:
-        """All of an owner's public repos, paginated."""
+        """All public repositories for an owner, paginated."""
         repos: list[dict] = []
         page = 1
         while True:
@@ -78,7 +73,7 @@ class GitHub:
             page += 1
 
     async def get_file(self, owner: str, repo: str, path: str) -> str | None:
-        """One file's text via the contents API, or None when absent."""
+        """One public file's text via the contents API, or None when absent."""
         try:
             response = await self._get(f"/repos/{owner}/{repo}/contents/{path}")
         except httpx.HTTPStatusError as exc:
@@ -91,7 +86,7 @@ class GitHub:
         return b64decode(payload["content"]).decode("utf-8", errors="replace")
 
     async def list_html_under(self, owner: str, repo: str, prefix: str) -> list[str]:
-        """Paths of .html files under a prefix, via the recursive tree."""
+        """Paths of public HTML files under a prefix, via the recursive tree."""
         try:
             response = await self._get(
                 f"/repos/{owner}/{repo}/git/trees/main", params={"recursive": "1"}
@@ -109,18 +104,8 @@ class GitHub:
         ]
 
 
-# --------------------------------------------------------------------- #
-# HTML to text                                                            #
-# --------------------------------------------------------------------- #
-
-
 class _TextExtractor(HTMLParser):
-    """Stdlib HTML-to-text: body copy in, chrome out.
-
-    script/style/nav/footer subtrees are skipped because navigation and
-    boilerplate would otherwise dominate every page's embedding and
-    make unrelated case studies look similar.
-    """
+    """Reduce public site HTML to searchable body text."""
 
     _SKIP = {"script", "style", "nav", "footer", "noscript", "svg", "head"}
     _BREAK = {"p", "div", "section", "article", "li", "br", "h1", "h2", "h3", "h4", "tr"}
@@ -153,24 +138,13 @@ class _TextExtractor(HTMLParser):
 
 
 def html_to_text(html: str) -> str:
-    """Reduce an HTML document to searchable plain text."""
     extractor = _TextExtractor()
     extractor.feed(html)
     return extractor.text()
 
 
-# --------------------------------------------------------------------- #
-# Chunking                                                                #
-# --------------------------------------------------------------------- #
-
-
 def chunk_words(text: str, size: int, overlap: int) -> list[str]:
-    """Word-window chunking with overlap.
-
-    Word counts approximate token counts closely enough for retrieval
-    without buying a tokenizer dependency; the embedding model's 8k
-    window has an order of magnitude of headroom over these chunks.
-    """
+    """Legacy word-window helper retained for compatibility with tests."""
     words = text.split()
     if not words:
         return []
@@ -186,39 +160,30 @@ def chunk_words(text: str, size: int, overlap: int) -> list[str]:
     return chunks
 
 
-# --------------------------------------------------------------------- #
-# Ingest                                                                  #
-# --------------------------------------------------------------------- #
-
-
 def _doc_key(repo: str, path: str) -> str:
-    """Stable identity for one source document."""
     return f"{repo}:{path}"
 
 
 def _chunk_id(repo: str, path: str, index: int) -> str:
-    """Deterministic chunk id so re-ingest upserts instead of duplicating."""
     return hashlib.sha1(f"{repo}:{path}:{index}".encode()).hexdigest()
 
 
 async def _gather_documents(
     gh: GitHub, settings: Settings
 ) -> list[tuple[str, str, str, str]]:
-    """Collect (repo, path, doc_type, text) for every source."""
+    """Collect only approved public source documents."""
     documents: list[tuple[str, str, str, str]] = []
     owner = settings.github_owner
     excluded = {name.strip() for name in settings.exclude_repos.split(",") if name.strip()}
 
-    # 1. READMEs across the estate
     for repo in await gh.list_repos(owner):
         name = repo["name"]
-        if name in excluded or repo.get("fork") or repo.get("archived"):
+        if name in excluded or repo.get("fork") or repo.get("archived") or repo.get("private"):
             continue
         readme = await gh.get_file(owner, name, "README.md")
         if readme:
             documents.append((name, "README.md", "readme", readme))
 
-    # 2. Pinned extra files (decisions.md and friends)
     for entry in settings.extra_files.split(","):
         entry = entry.strip()
         if not entry:
@@ -228,9 +193,8 @@ async def _gather_documents(
         if text:
             documents.append((repo, path, doc_type, text))
         else:
-            logger.warning("extra file missing on GitHub: %s/%s", repo, path)
+            logger.warning("extra public file missing on GitHub: %s/%s", repo, path)
 
-    # 3. Site HTML: case studies and articles
     for prefix, doc_type in (
         (settings.case_study_prefix, "case-study"),
         (settings.article_prefix, "article"),
@@ -240,13 +204,25 @@ async def _gather_documents(
             if html:
                 documents.append((settings.site_repo, path, doc_type, html_to_text(html)))
 
-    # 4. Local docs (brand doc, context doc) mounted read-only
-    docs_dir = Path(settings.docs_dir)
-    if docs_dir.is_dir():
-        for path in sorted(docs_dir.glob("*.md")):
-            documents.append(("local", path.name, "doc", path.read_text(errors="replace")))
-
     return documents
+
+
+def _prune_removed_documents(
+    collection: Collection,
+    active_doc_keys: set[str],
+) -> int:
+    """Delete chunks whose source document left the approved public source set."""
+    existing = collection.get(include=["metadatas"])
+    stale_ids: list[str] = []
+    ids = existing.get("ids") or []
+    metadatas = existing.get("metadatas") or []
+    for chunk_id, metadata in zip(ids, metadatas):
+        doc_key = metadata.get("doc_key") if isinstance(metadata, dict) else None
+        if not isinstance(doc_key, str) or doc_key not in active_doc_keys:
+            stale_ids.append(chunk_id)
+    if stale_ids:
+        collection.delete(ids=stale_ids)
+    return len(stale_ids)
 
 
 async def run_ingest(
@@ -255,11 +231,7 @@ async def run_ingest(
     collection: Collection,
     embed_fn,
 ) -> IngestStats:
-    """Full ingest pass: fetch, chunk, embed, upsert, prune stale chunks.
-
-    embed_fn is injected (rather than importing the embedder) so tests
-    can exercise ingestion without an Ollama on the network.
-    """
+    """Full public-source ingest pass with deterministic upsert and pruning."""
     started = time.time()
     gh = GitHub(client, settings)
     documents = await _gather_documents(gh, settings)
@@ -296,9 +268,8 @@ async def run_ingest(
                 for i in range(len(chunks))
             ],
         )
-        # Prune chunks beyond the document's new length (doc shrank).
         existing = collection.get(where={"doc_key": _doc_key(repo, path)})
-        stale = [cid for cid in existing["ids"] if cid not in set(ids)]
+        stale = [chunk_id for chunk_id in existing["ids"] if chunk_id not in set(ids)]
         if stale:
             collection.delete(ids=stale)
             stats["deleted"] += len(stale)
@@ -314,7 +285,15 @@ async def run_ingest(
         }
         logger.info("ingested %s/%s: %d chunks (%s)", repo, path, len(chunks), doc_type)
 
+    removed = _prune_removed_documents(collection, set(index))
+    stats["deleted"] += removed
+    if removed:
+        logger.info("pruned %d chunks from sources outside the public source set", removed)
+
     stats["took_s"] = round(time.time() - started, 1)
     stats["index"] = index
-    logger.info("ingest complete: %s", json.dumps({k: v for k, v in stats.items() if k != "index"}))
+    logger.info(
+        "public ingest complete: %s",
+        json.dumps({key: value for key, value in stats.items() if key != "index"}),
+    )
     return stats
