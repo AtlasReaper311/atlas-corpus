@@ -12,6 +12,10 @@ The identity line ("ADR-0001 (accepted, 2026-07-02)") is prepended to
 every chunk so the record id is lexically searchable: a query for
 "ADR-0001" reaches the record through the BM25 half of hybrid search
 even though the id carries almost no embedding signal.
+
+Normal ADR filenames begin with the ADR id. A bounded optional `slug`
+frontmatter field exists only so pre-numbered authority documents can
+retain stable paths while still carrying an ADR identity.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ logger = logging.getLogger(__name__)
 ADR_STATUSES = {"proposed", "accepted", "superseded"}
 _ADR_ID_RE = re.compile(r"^ADR-[0-9]{4}$")
 _DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _SKIP_FILES = {"TEMPLATE.md", "README.md"}
 _FRONTMATTER = "+++"
 _GITHUB_API = "https://api.github.com"
@@ -57,8 +62,8 @@ def parse_adr(text: str) -> dict:
 
     Dates arrive from tomllib as date objects and are normalised to
     strings, because Chroma metadata values must be scalar strings,
-    ints, floats, or bools. supersedes is optional and only carried
-    when present, so records without it store no null.
+    ints, floats, or bools. supersedes and slug are optional and only
+    carried when present, so records without them store no null.
     """
     block, body = _split_frontmatter(text)
     try:
@@ -88,12 +93,18 @@ def parse_adr(text: str) -> dict:
             raise AdrError("frontmatter 'supersedes' must match ADR-NNNN")
         if supersedes == adr_id:
             raise AdrError("an ADR cannot supersede itself")
+    slug = meta.get("slug")
+    if slug is not None:
+        if not isinstance(slug, str) or not _SLUG_RE.fullmatch(slug):
+            raise AdrError("frontmatter 'slug' must be lower-case kebab-case")
     if not body:
         raise AdrError("ADR body is empty")
 
     fields = {"id": adr_id, "status": status, "date": date, "body": body}
     if supersedes:
         fields["supersedes"] = supersedes
+    if slug:
+        fields["slug"] = slug
     return fields
 
 
@@ -106,6 +117,8 @@ def _base_metadata(fields: dict) -> dict:
     }
     if "supersedes" in fields:
         meta["adr_supersedes"] = fields["supersedes"]
+    if "slug" in fields:
+        meta["adr_slug"] = fields["slug"]
     return meta
 
 
@@ -223,8 +236,13 @@ async def gather_adrs(
         adr_id = fields["id"]
         stem = name.removesuffix(".md")
         if stem != adr_id and not stem.startswith(f"{adr_id}-"):
-            logger.warning("skipping ADR %s: filename does not start with %s", name, adr_id)
-            continue
+            if fields.get("slug") != stem:
+                logger.warning(
+                    "skipping ADR %s: filename does not start with %s and declared slug does not match",
+                    name,
+                    adr_id,
+                )
+                continue
         if adr_id in seen_ids:
             logger.warning("skipping duplicate ADR id %s in %s", adr_id, name)
             continue
