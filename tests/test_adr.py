@@ -30,6 +30,33 @@ Decision.
 Consequences.
 """
 
+LEGACY = """+++
+id = "ADR-0003"
+date = 2026-07-20
+status = "accepted"
+slug = "public-private-estate-boundary"
+visibility = "public"
+repositories = []
+services = []
+contracts = []
+policies = []
++++
+
+# ADR-0003: Public and private estate boundary
+
+## Context
+
+Context.
+
+## Decision
+
+Decision.
+
+## Consequences
+
+Consequences.
+"""
+
 
 class FakeResponse:
     def __init__(self, status_code=200, payload=None, text=""):
@@ -58,11 +85,30 @@ class FakeClient:
 
 
 class AdrTests(unittest.IsolatedAsyncioTestCase):
+    def settings(self):
+        return SimpleNamespace(
+            github_owner="AtlasReaper311",
+            github_token="",
+            adr_repo="atlas-infra",
+            adr_prefix="docs/adrs",
+        )
+
     def test_parse_and_chunk(self):
         fields = parse_adr(VALID)
         self.assertEqual("ADR-0001", fields["id"])
         chunks = chunk_adr(VALID, 12, 2)
         self.assertTrue(all(chunk.text.startswith("ADR-0001") for chunk in chunks))
+
+    def test_parse_legacy_slug(self):
+        fields = parse_adr(LEGACY)
+        self.assertEqual("ADR-0003", fields["id"])
+        self.assertEqual("public-private-estate-boundary", fields["slug"])
+        chunks = chunk_adr(LEGACY, 100, 10)
+        self.assertEqual("public-private-estate-boundary", chunks[0].metadata["adr_slug"])
+
+    def test_bad_slug_is_rejected(self):
+        with self.assertRaises(AdrError):
+            parse_adr(LEGACY.replace("public-private-estate-boundary", "Bad Slug", 1))
 
     def test_bad_id_is_rejected(self):
         with self.assertRaises(AdrError):
@@ -78,13 +124,7 @@ class AdrTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_github_error_returns_empty(self):
         client = FakeClient([FakeResponse(status_code=500)])
-        settings = SimpleNamespace(
-            github_owner="AtlasReaper311",
-            github_token="",
-            adr_repo="atlas-infra",
-            adr_prefix="docs/adrs",
-        )
-        self.assertEqual([], await gather_adrs(client, settings))
+        self.assertEqual([], await gather_adrs(client, self.settings()))
 
     async def test_partial_fetch_failure_returns_empty(self):
         listing = [
@@ -96,13 +136,7 @@ class AdrTests(unittest.IsolatedAsyncioTestCase):
             FakeResponse(text=VALID),
             FakeResponse(status_code=500),
         ])
-        settings = SimpleNamespace(
-            github_owner="AtlasReaper311",
-            github_token="",
-            adr_repo="atlas-infra",
-            adr_prefix="docs/adrs",
-        )
-        self.assertEqual([], await gather_adrs(client, settings))
+        self.assertEqual([], await gather_adrs(client, self.settings()))
 
     async def test_listing_is_sorted(self):
         listing = [
@@ -115,17 +149,33 @@ class AdrTests(unittest.IsolatedAsyncioTestCase):
             FakeResponse(text=VALID),
             FakeResponse(text=second),
         ])
-        settings = SimpleNamespace(
-            github_owner="AtlasReaper311",
-            github_token="",
-            adr_repo="atlas-infra",
-            adr_prefix="docs/adrs",
-        )
-        docs = await gather_adrs(client, settings)
+        docs = await gather_adrs(client, self.settings())
         self.assertEqual(
             ["docs/adrs/ADR-0001-a.md", "docs/adrs/ADR-0002-b.md"],
             [doc[1] for doc in docs],
         )
+
+    async def test_legacy_slug_allows_stable_non_numbered_path(self):
+        listing = [{
+            "type": "file",
+            "name": "public-private-estate-boundary.md",
+            "download_url": "https://raw.githubusercontent.com/x/y/main/boundary",
+        }]
+        client = FakeClient([FakeResponse(payload=listing), FakeResponse(text=LEGACY)])
+        docs = await gather_adrs(client, self.settings())
+        self.assertEqual(
+            ["docs/adrs/public-private-estate-boundary.md"],
+            [doc[1] for doc in docs],
+        )
+
+    async def test_legacy_filename_without_matching_slug_is_skipped(self):
+        listing = [{
+            "type": "file",
+            "name": "another-boundary.md",
+            "download_url": "https://raw.githubusercontent.com/x/y/main/boundary",
+        }]
+        client = FakeClient([FakeResponse(payload=listing), FakeResponse(text=LEGACY)])
+        self.assertEqual([], await gather_adrs(client, self.settings()))
 
 
 if __name__ == "__main__":
