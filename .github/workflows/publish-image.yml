@@ -25,7 +25,7 @@ jobs:
     # atlas-infra PR adding publish-container-image.yml is merged. Same
     # pin-to-immutable-commit convention refresh-corpus.yml already uses for
     # cross-repo reusable workflow calls.
-    uses: AtlasReaper311/atlas-infra/.github/workflows/publish-container-image.yml@ec138de84c05ef3f5306efb2f8e9571e0147773a # atlas-infra draft PR head
+    uses: AtlasReaper311/atlas-infra/.github/workflows/publish-container-image.yml@342a8edce9d7c7a4a8992256c46c06425edcc5b4 # atlas-infra draft PR head
     permissions:
       contents: read
       packages: write
