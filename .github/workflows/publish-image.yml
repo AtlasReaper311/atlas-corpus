@@ -14,7 +14,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: publish-image-${{ github.ref }}
@@ -22,10 +21,13 @@ concurrency:
 
 jobs:
   publish:
-    # REPLACE <PINNED_SHA> below with atlas-infra's main commit SHA
-    # once the atlas-infra PR adding publish-container-image.yml is
-    # merged. Same pin-to-immutable-commit convention refresh-corpus.yml
-    # already uses for cross-repo reusable workflow calls.
-    uses: AtlasReaper311/atlas-infra/.github/workflows/publish-container-image.yml@<PINNED_SHA> # atlas-infra main
+    # REPLACE this draft PR SHA with atlas-infra's main commit SHA once the
+    # atlas-infra PR adding publish-container-image.yml is merged. Same
+    # pin-to-immutable-commit convention refresh-corpus.yml already uses for
+    # cross-repo reusable workflow calls.
+    uses: AtlasReaper311/atlas-infra/.github/workflows/publish-container-image.yml@ec138de84c05ef3f5306efb2f8e9571e0147773a # atlas-infra draft PR head
+    permissions:
+      contents: read
+      packages: write
     with:
       image_name: atlas-corpus
