@@ -21,11 +21,7 @@ concurrency:
 
 jobs:
   publish:
-    # REPLACE this draft PR SHA with atlas-infra's main commit SHA once the
-    # atlas-infra PR adding publish-container-image.yml is merged. Same
-    # pin-to-immutable-commit convention refresh-corpus.yml already uses for
-    # cross-repo reusable workflow calls.
-    uses: AtlasReaper311/atlas-infra/.github/workflows/publish-container-image.yml@342a8edce9d7c7a4a8992256c46c06425edcc5b4 # atlas-infra draft PR head
+    uses: AtlasReaper311/atlas-infra/.github/workflows/publish-container-image.yml@9e09c7f195fab8b1a695818a3350847328dede0c # atlas-infra main
     permissions:
       contents: read
       packages: write
