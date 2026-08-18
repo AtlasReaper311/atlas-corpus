@@ -26,6 +26,19 @@ class Settings(BaseSettings):
     embed_model: str = "nomic-embed-text"
     answer_model: str = "mistral:7b"
     embed_batch_size: int = 16
+    # GPU layers for the embedding model. 0 keeps it entirely on CPU.
+    #
+    # nomic-embed-text is 137M parameters and measures the same on CPU as
+    # on GPU here: a batch of 16 took 1.57s either way, so a full refresh
+    # is roughly 45s in both cases. On the GPU it costs 0.6GB of VRAM,
+    # and that is not free. SPECULAR-CORE has 12GB with about 2.8GB held
+    # by the desktop, so a 9.5GB answer model and the embedder cannot
+    # both be resident. Ollama evicted the answer model on every single
+    # query, and each answer then paid a 22s reload: 25.5s per answer
+    # against 1.9s with the embedder on CPU, measured over three runs
+    # each. Giving away 0.6GB of VRAM for no throughput gain was the
+    # whole cost.
+    embed_num_gpu: int = 0
     embed_timeout_seconds: float = 120.0
     answer_timeout_seconds: float = 180.0
     health_timeout_seconds: float = 5.0

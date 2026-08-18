@@ -23,7 +23,15 @@ async def embed_batch(
         batch = texts[start : start + settings.embed_batch_size]
         response = await client.post(
             f"{settings.ollama_host}/api/embed",
-            json={"model": settings.embed_model, "input": batch},
+            json={
+                "model": settings.embed_model,
+                "input": batch,
+                # Keeping the embedder off the GPU stops it evicting the
+                # much larger answer model between retrieval and
+                # synthesis. See Settings.embed_num_gpu for the measured
+                # reasoning.
+                "options": {"num_gpu": settings.embed_num_gpu},
+            },
             timeout=settings.embed_timeout_seconds,
         )
         response.raise_for_status()
