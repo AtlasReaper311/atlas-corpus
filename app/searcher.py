@@ -178,3 +178,50 @@ def hybrid_search(
         document, meta, similarity = entry
         hits.append(_hit_from(document, meta, similarity))
     return hits
+
+
+def lexical_search(
+    collection: Collection,
+    index: HybridIndex,
+    query_text: str,
+    k: int,
+    freshness_marker=None,
+) -> list[SearchHit]:
+    """Top-k chunks by BM25 alone, for when embedding is unavailable.
+
+    This is the degraded retrieval path. hybrid_search needs a query
+    embedding twice over: once for the vector ranking, and again to give
+    every returned chunk a true cosine score. Neither is possible while
+    Ollama is unreachable, but the BM25 index is built from stored
+    documents and needs nothing from Ollama at all, so lexical ranking
+    stays available when the embedding step does not.
+
+    Every hit carries score 0.0. The score field on SearchHit is
+    documented as a real cosine similarity to the query, and there is no
+    query vector here to measure one against. Deriving a number from
+    BM25 instead would put a differently-scaled value behind the same
+    name, which is worse for a caller than an obviously absent score.
+    Callers distinguish this case by the degraded flag on the response
+    rather than by inspecting scores.
+    """
+    total = collection.count()
+    if total == 0:
+        return []
+    index.ensure_fresh(collection, freshness_marker)
+    top_ids = index.ranked_ids(query_text, k)
+    if not top_ids:
+        return []
+
+    fetched = collection.get(ids=top_ids, include=["documents", "metadatas"])
+    by_id: dict[str, tuple[str, dict]] = {}
+    for position, cid in enumerate(fetched.get("ids", [])):
+        by_id[cid] = (fetched["documents"][position], fetched["metadatas"][position])
+
+    hits: list[SearchHit] = []
+    for cid in top_ids:
+        entry = by_id.get(cid)
+        if entry is None:
+            continue
+        document, meta = entry
+        hits.append(_hit_from(document, meta, 0.0))
+    return hits
