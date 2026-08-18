@@ -23,11 +23,17 @@ class SearchHit(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    """Ranked hits plus timing."""
+    """Ranked hits plus timing.
+
+    degraded marks a result produced without Ollama: BM25 ranking only,
+    no vector recall, and no cosine scores. It defaults to False so
+    existing callers that never read the field keep their old shape.
+    """
 
     query: str
     hits: list[SearchHit]
     took_ms: int
+    degraded: bool = False
 
 
 class AskSource(BaseModel):
@@ -39,10 +45,16 @@ class AskSource(BaseModel):
 
 
 class AskResponse(BaseModel):
-    """A plain-language answer grounded in retrieved corpus excerpts."""
+    """A plain-language answer grounded in retrieved corpus excerpts.
+
+    degraded marks an answer returned without model synthesis, where the
+    excerpts are quoted directly rather than summarised. It defaults to
+    False so existing callers keep their old shape.
+    """
 
     answer: str
     sources: list[AskSource]
+    degraded: bool = False
 
 
 class IndexEntry(BaseModel):

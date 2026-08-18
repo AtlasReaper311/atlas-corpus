@@ -51,7 +51,7 @@ from app.models import (
     StatsResponse,
 )
 from app.hybrid import HybridIndex
-from app.searcher import connect_collection, search, hybrid_search
+from app.searcher import connect_collection, search, hybrid_search, lexical_search
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +111,19 @@ PRIVATE_BOUNDARY_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
-async def _wait_for_ollama(client: httpx.AsyncClient, settings: Settings) -> None:
-    """Block until Ollama answers /api/tags, or raise after the budget."""
+async def _wait_for_ollama(client: httpx.AsyncClient, settings: Settings) -> bool:
+    """Wait for Ollama to answer /api/tags; report whether it ever did.
+
+    This used to raise, which took the whole service down whenever it
+    restarted during an Ollama outage. Retrieval does not actually need
+    Ollama to serve a lexical answer, so an unreachable dependency now
+    reports False and lets startup continue in degraded mode instead.
+
+    The full retry budget is kept deliberately. Returning early would
+    boot degraded while Ollama was seconds from being ready, and serving
+    BM25-only results to a service that could have had vector recall is
+    a worse outcome than a slower start.
+    """
     for attempt in range(1, READINESS_ATTEMPTS + 1):
         try:
             response = await client.get(
@@ -121,7 +132,7 @@ async def _wait_for_ollama(client: httpx.AsyncClient, settings: Settings) -> Non
             )
             response.raise_for_status()
             logger.info("Ollama reachable at %s", settings.ollama_host)
-            return
+            return True
         except Exception:  # noqa: BLE001
             logger.info(
                 "Waiting for Ollama at %s (attempt %d/%d)",
@@ -130,7 +141,14 @@ async def _wait_for_ollama(client: httpx.AsyncClient, settings: Settings) -> Non
                 READINESS_ATTEMPTS,
             )
             await asyncio.sleep(READINESS_DELAY_SECONDS)
-    raise RuntimeError(f"Ollama unreachable at {settings.ollama_host}")
+    logger.warning(
+        "Ollama unreachable at %s after %d attempts; starting in degraded mode. "
+        "Search falls back to BM25 and /ask returns excerpts without synthesis. "
+        "/health reports ollama_ok false until it returns.",
+        settings.ollama_host,
+        READINESS_ATTEMPTS,
+    )
+    return False
 
 
 # --------------------------------------------------------------------- #
@@ -254,7 +272,7 @@ async def lifespan(app: FastAPI):
         )
     app.state.settings = settings
     app.state.client = httpx.AsyncClient()
-    await _wait_for_ollama(app.state.client, settings)
+    app.state.ollama_ready_at_startup = await _wait_for_ollama(app.state.client, settings)
     app.state.collection = connect_collection(settings)
     app.state.hybrid_index = HybridIndex()
     app.state.index = _restore_index_from_collection(app.state.collection)
@@ -464,28 +482,47 @@ def _answer_declines(answer: str) -> bool:
     )
 
 
-def _fallback_answer_from_hits(hits) -> AskResponse:
+def _fallback_answer_from_hits(hits, *, unavailable: bool = False) -> AskResponse:
+    """Return excerpts directly when synthesis cannot run.
+
+    unavailable distinguishes the two reasons this path is reached. On a
+    timeout the model was there and ran out of time, and the hits carry
+    real cosine scores, so a weak best score still means "do not answer".
+    When Ollama is unreachable the hits came from lexical_search and
+    every score is 0.0 by design, so applying the same threshold would
+    suppress good BM25 matches for a reason that no longer holds.
+    """
     if not hits:
         return AskResponse(
             answer="I could not find anything in the corpus excerpts that answers that question.",
             sources=[],
+            degraded=unavailable,
         )
-    best_score = max(float(hit.score) for hit in hits)
-    if best_score < 0.5:
-        return AskResponse(
-            answer="The retrieved corpus excerpts do not answer that question clearly enough for me to answer without guessing.",
-            sources=[],
-        )
+    if not unavailable:
+        best_score = max(float(hit.score) for hit in hits)
+        if best_score < 0.5:
+            return AskResponse(
+                answer="The retrieved corpus excerpts do not answer that question clearly enough for me to answer without guessing.",
+                sources=[],
+            )
     sources = [_source_from_hit(hit) for hit in hits[:2]]
     facts = " ".join(source.excerpt for source in sources)
     if len(facts) > 420:
         facts = facts[:419].rstrip() + "..."
-    return AskResponse(
-        answer=(
+    if unavailable:
+        preamble = (
+            "The answer model is unavailable, so this is not a synthesized answer. "
+            "These are the closest corpus excerpts, ranked by keyword match: "
+        )
+    else:
+        preamble = (
             "Answer synthesis did not finish before the public request timeout, "
-            f"but the closest corpus excerpts say: {facts}"
-        ),
+            "but the closest corpus excerpts say: "
+        )
+    return AskResponse(
+        answer=preamble + facts,
         sources=sources,
+        degraded=unavailable,
     )
 
 
@@ -494,13 +531,23 @@ async def _answer_from_hits(
     settings: Settings,
     question: str,
     hits,
+    degraded: bool = False,
 ) -> AskResponse:
-    """Ask Ollama for a grounded answer over already-retrieved chunks."""
+    """Ask Ollama for a grounded answer over already-retrieved chunks.
+
+    degraded means retrieval already failed to reach Ollama for this
+    request. Calling it again for synthesis would spend the full answer
+    timeout to reach the same conclusion, so the excerpt fallback is
+    returned straight away.
+    """
     if not hits:
         return AskResponse(
             answer="I could not find anything in the corpus excerpts that answers that question.",
             sources=[],
+            degraded=degraded,
         )
+    if degraded:
+        return _fallback_answer_from_hits(hits, unavailable=True)
 
     source_lines = []
     sources_by_id = {}
@@ -532,9 +579,18 @@ async def _answer_from_hits(
             },
             timeout=min(settings.answer_timeout_seconds, 55.0),
         )
+        response.raise_for_status()
     except httpx.TimeoutException:
         return _fallback_answer_from_hits(hits)
-    response.raise_for_status()
+    except httpx.HTTPError as exc:
+        # Connection refused, DNS failure, or a non-200 from Ollama.
+        # Retrieval already succeeded, so returning the excerpts beats
+        # turning a synthesis outage into a 500 on /ask.
+        logger.warning(
+            "answer synthesis unavailable (%s); returning excerpts without synthesis",
+            exc.__class__.__name__,
+        )
+        return _fallback_answer_from_hits(hits, unavailable=True)
     answer = str(response.json().get("response") or "").strip()
     if not answer:
         answer = (
@@ -571,20 +627,43 @@ async def _run_search(payload: SearchRequest, request: Request) -> SearchRespons
         took_ms = int((time.time() - started) * 1000)
         _log_query_fire_and_forget(payload.query, 0, took_ms)
         return SearchResponse(query=payload.query, hits=[], took_ms=took_ms)
-    embedding = await embed_query(app.state.client, settings, payload.query)
     k = min(payload.top_k or settings.top_k_default, settings.top_k_max)
-    hits = hybrid_search(
-        app.state.collection,
-        app.state.hybrid_index,
-        embedding,
-        payload.query,
-        k,
-        freshness_marker=app.state.last_refresh,
-    )
+    degraded = False
+    try:
+        embedding = await embed_query(app.state.client, settings, payload.query)
+    except (httpx.HTTPError, RuntimeError) as exc:
+        # httpx.HTTPError covers connection refused, DNS failure, and a
+        # bad status alike; embed_batch raises RuntimeError when the
+        # embedding model is not pulled. All of them mean the same thing
+        # to this function: there is no query vector, so rank lexically
+        # rather than turning a dependency outage into a 500.
+        logger.warning(
+            "embedding unavailable (%s); serving BM25-only results for this query",
+            exc.__class__.__name__,
+        )
+        degraded = True
+        hits = lexical_search(
+            app.state.collection,
+            app.state.hybrid_index,
+            payload.query,
+            k,
+            freshness_marker=app.state.last_refresh,
+        )
+    else:
+        hits = hybrid_search(
+            app.state.collection,
+            app.state.hybrid_index,
+            embedding,
+            payload.query,
+            k,
+            freshness_marker=app.state.last_refresh,
+        )
     took_ms = int((time.time() - started) * 1000)
     if not internal:
         _log_query_fire_and_forget(payload.query, len(hits), took_ms)
-    return SearchResponse(query=payload.query, hits=hits, took_ms=took_ms)
+    return SearchResponse(
+        query=payload.query, hits=hits, took_ms=took_ms, degraded=degraded
+    )
 
 
 @app.post("/search", response_model=SearchResponse)
@@ -621,6 +700,7 @@ async def ask_corpus(payload: SearchRequest, request: Request) -> AskResponse:
         app.state.settings,
         search_response.query,
         search_response.hits,
+        degraded=search_response.degraded,
     )
 
 
