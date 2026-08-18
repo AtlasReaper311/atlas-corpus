@@ -172,3 +172,48 @@ class _Settings:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmbedderPlacementTests(unittest.IsolatedAsyncioTestCase):
+    """The embedder must not quietly move back onto the GPU.
+
+    On SPECULAR-CORE the answer model and the embedder cannot both be
+    resident, so an embedder that claims GPU memory evicts the answer
+    model on every query and each answer pays a full reload. This is a
+    performance contract, not a style preference, so it is pinned here.
+    """
+
+    async def test_embed_request_sends_the_configured_gpu_layers(self):
+        captured = {}
+
+        class CapturingClient:
+            async def post(self, url, json=None, timeout=None):
+                captured.update(json or {})
+
+                class Response:
+                    @staticmethod
+                    def raise_for_status():
+                        return None
+
+                    @staticmethod
+                    def json():
+                        return {"embeddings": [[0.1, 0.2]]}
+
+                return Response()
+
+        from app.embedder import embed_query
+
+        class _S:
+            ollama_host = "http://127.0.0.1:11434"
+            embed_model = "nomic-embed-text"
+            embed_batch_size = 16
+            embed_num_gpu = 0
+            embed_timeout_seconds = 5.0
+
+        await embed_query(CapturingClient(), _S(), "a query")
+        self.assertEqual(captured.get("options", {}).get("num_gpu"), 0)
+
+    def test_default_keeps_the_embedder_off_the_gpu(self):
+        from app.config import Settings
+
+        self.assertEqual(Settings.model_fields["embed_num_gpu"].default, 0)

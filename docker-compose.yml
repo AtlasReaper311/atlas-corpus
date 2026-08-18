@@ -30,6 +30,9 @@ services:
       - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
       - ANSWER_MODEL=${ANSWER_MODEL:-mistral:7b}
       - EMBED_BATCH_SIZE=${EMBED_BATCH_SIZE:-16}
+      # 0 keeps the embedder on CPU so it cannot evict the answer
+      # model from VRAM. See app/config.py for the measurements.
+      - EMBED_NUM_GPU=${EMBED_NUM_GPU:-0}
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
       - COLLECTION_NAME=${COLLECTION_NAME:-atlas_corpus}
