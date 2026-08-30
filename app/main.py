@@ -482,6 +482,29 @@ def _answer_declines(answer: str) -> bool:
     )
 
 
+def _use_openai_answer(settings: Settings) -> bool:
+    return getattr(settings, "answer_provider", "ollama").strip().lower() in {
+        "openai",
+        "llama.cpp",
+        "llamacpp",
+    }
+
+
+def _answer_openai_headers(settings: Settings) -> dict[str, str]:
+    headers = {"content-type": "application/json"}
+    api_key = getattr(settings, "answer_openai_api_key", "")
+    if api_key:
+        headers["authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def _answer_openai_chat_url(settings: Settings) -> str:
+    base_url = getattr(settings, "answer_openai_base_url", "").strip().rstrip("/")
+    if not base_url:
+        raise RuntimeError("ANSWER_OPENAI_BASE_URL is required when ANSWER_PROVIDER=openai")
+    return f"{base_url}/chat/completions"
+
+
 def _fallback_answer_from_hits(hits, *, unavailable: bool = False) -> AskResponse:
     """Return excerpts directly when synthesis cannot run.
 
@@ -568,17 +591,31 @@ async def _answer_from_hits(
         + "\n\n".join(source_lines)
     )
     try:
-        response = await client.post(
-            f"{settings.ollama_host}/api/generate",
-            json={
-                "model": settings.answer_model,
-                "prompt": prompt,
-                "stream": False,
-                "keep_alive": "30m",
-                "options": {"temperature": 0.0, "num_ctx": 2048, "num_predict": 140},
-            },
-            timeout=min(settings.answer_timeout_seconds, 55.0),
-        )
+        if _use_openai_answer(settings):
+            response = await client.post(
+                _answer_openai_chat_url(settings),
+                headers=_answer_openai_headers(settings),
+                json={
+                    "model": settings.answer_openai_model or settings.answer_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "temperature": 0.0,
+                    "max_tokens": settings.answer_openai_max_tokens,
+                },
+                timeout=min(settings.answer_timeout_seconds, 55.0),
+            )
+        else:
+            response = await client.post(
+                f"{settings.ollama_host}/api/generate",
+                json={
+                    "model": settings.answer_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "keep_alive": "30m",
+                    "options": {"temperature": 0.0, "num_ctx": 2048, "num_predict": 140},
+                },
+                timeout=min(settings.answer_timeout_seconds, 55.0),
+            )
         response.raise_for_status()
     except httpx.TimeoutException:
         return _fallback_answer_from_hits(hits)
@@ -591,7 +628,13 @@ async def _answer_from_hits(
             exc.__class__.__name__,
         )
         return _fallback_answer_from_hits(hits, unavailable=True)
-    answer = str(response.json().get("response") or "").strip()
+    data = response.json()
+    if _use_openai_answer(settings):
+        choices = data.get("choices") or []
+        message = choices[0].get("message") if choices else {}
+        answer = str((message or {}).get("content") or "").strip()
+    else:
+        answer = str(data.get("response") or "").strip()
     if not answer:
         answer = (
             "The retrieved corpus excerpts do not answer that question clearly enough for me to answer without guessing."

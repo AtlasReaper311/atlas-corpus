@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     ollama_host: str = "http://host.docker.internal:11434"
     embed_model: str = "nomic-embed-text"
     answer_model: str = "mistral:7b"
+    answer_provider: str = "ollama"
+    answer_openai_base_url: str = ""
+    answer_openai_model: str = "qwen3.5-mtp"
+    answer_openai_api_key: str = ""
+    answer_openai_max_tokens: int = 140
     embed_batch_size: int = 16
     # GPU layers for the embedding model. 0 keeps it entirely on CPU.
     #

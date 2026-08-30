@@ -161,6 +161,45 @@ class AnswerFromHitsTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(answer.degraded)
         self.assertIn("public request timeout", answer.answer)
 
+    async def test_openai_provider_targets_shared_llama_endpoint(self):
+        captured = {}
+
+        class CapturingClient:
+            async def post(self, url, headers=None, json=None, timeout=None):
+                captured["url"] = url
+                captured["headers"] = headers
+                captured["json"] = json
+                captured["timeout"] = timeout
+
+                class Response:
+                    @staticmethod
+                    def raise_for_status():
+                        return None
+
+                    @staticmethod
+                    def json():
+                        return {
+                            "choices": [
+                                {"message": {"content": "It uses the shared endpoint. [1]"}}
+                            ]
+                        }
+
+                return Response()
+
+        answer = await _answer_from_hits(
+            CapturingClient(), _OpenAISettings(), "what serves it", [_hit(0.8)]
+        )
+
+        self.assertEqual(
+            captured["url"],
+            "http://172.23.16.1:8095/v1/chat/completions",
+        )
+        self.assertEqual(captured["headers"], {"content-type": "application/json"})
+        self.assertEqual(captured["json"]["model"], "qwen3.5-mtp")
+        self.assertFalse(captured["json"]["stream"])
+        self.assertEqual(answer.answer, "It uses the shared endpoint. [1]")
+        self.assertTrue(answer.sources)
+
 
 class _Settings:
     """Only the attributes _answer_from_hits reads before its request."""
@@ -168,6 +207,14 @@ class _Settings:
     ollama_host = "http://127.0.0.1:1"
     answer_model = "test-model"
     answer_timeout_seconds = 5.0
+
+
+class _OpenAISettings(_Settings):
+    answer_provider = "openai"
+    answer_openai_base_url = "http://172.23.16.1:8095/v1"
+    answer_openai_model = "qwen3.5-mtp"
+    answer_openai_api_key = ""
+    answer_openai_max_tokens = 140
 
 
 if __name__ == "__main__":
