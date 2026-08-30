@@ -29,6 +29,11 @@ services:
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
       - ANSWER_MODEL=${ANSWER_MODEL:-mistral:7b}
+      - ANSWER_PROVIDER=${ANSWER_PROVIDER:-ollama}
+      - ANSWER_OPENAI_BASE_URL=${ANSWER_OPENAI_BASE_URL:-}
+      - ANSWER_OPENAI_MODEL=${ANSWER_OPENAI_MODEL:-qwen3.5-mtp}
+      - ANSWER_OPENAI_API_KEY=${ANSWER_OPENAI_API_KEY:-}
+      - ANSWER_OPENAI_MAX_TOKENS=${ANSWER_OPENAI_MAX_TOKENS:-140}
       - EMBED_BATCH_SIZE=${EMBED_BATCH_SIZE:-16}
       # 0 keeps the embedder on CPU so it cannot evict the answer
       # model from VRAM. See app/config.py for the measurements.
