@@ -48,7 +48,10 @@ class QueryLogTests(unittest.TestCase):
         self.assertEqual(summary, {"count": 0, "top_terms": []})
 
     def test_unwritable_path_degrades_instead_of_raising(self):
-        bad = "/proc/definitely/not/writable/queries.db"
+        original_connect = querylog._connect
+        querylog._connect = lambda _path: (_ for _ in ()).throw(OSError("blocked"))
+        self.addCleanup(lambda: setattr(querylog, "_connect", original_connect))
+        bad = str(Path(self.tmp.name) / "blocked" / "queries.db")
         querylog.log_query(bad, "q", 0, 1)  # must not raise
         self.assertEqual(querylog.stats(bad)["queries_total"], 0)
         self.assertEqual(querylog.window_summary(bad, 0, 1)["count"], 0)
@@ -64,6 +67,11 @@ class FakeCollection:
                     "file_path": "README.md",
                     "doc_type": "readme",
                     "last_updated": "2026-07-07T09:00:00Z",
+                    "source_class": "public-classified",
+                    "source_scope": "public",
+                    "source_lifecycle": "production",
+                    "source_url": "https://github.com/AtlasReaper311/repo/blob/main/README.md",
+                    "public_url": "https://github.com/AtlasReaper311/repo/blob/main/README.md",
                 },
                 {
                     "doc_key": "repo:README.md",
@@ -82,3 +90,6 @@ class StartupIndexTests(unittest.TestCase):
         self.assertEqual(len(index), 1)
         self.assertEqual(index["repo:README.md"]["chunks"], 2)
         self.assertEqual(index["repo:README.md"]["last_updated"], "2026-07-07T09:01:00Z")
+        self.assertEqual(index["repo:README.md"]["source_class"], "public-classified")
+        self.assertEqual(index["repo:README.md"]["source_scope"], "public")
+        self.assertEqual(index["repo:README.md"]["source_lifecycle"], "production")

@@ -409,7 +409,10 @@ def _source_from_hit(
     limit: int = 260,
     question: str | None = None,
 ) -> AskSource:
+    title = hit.source_title or f"{hit.source_repo}/{hit.file_path}"
+    heading = hit.heading_path or hit.heading
     return AskSource(
+        id=hit.id,
         repo=hit.source_repo,
         file=hit.file_path,
         excerpt=(
@@ -417,6 +420,15 @@ def _source_from_hit(
             if question
             else _display_excerpt(hit.text, limit=limit)
         ),
+        title=title,
+        url=hit.public_url or hit.source_url,
+        public_url=hit.public_url,
+        heading=heading,
+        doc_type=hit.doc_type,
+        source_class=hit.source_class,
+        source_scope=hit.source_scope,
+        source_lifecycle=hit.source_lifecycle,
+        source_ref=hit.source_ref,
     )
 
 
@@ -480,6 +492,33 @@ def _answer_declines(answer: str) -> bool:
             "without guessing",
         )
     )
+
+
+def _select_answer_hits(hits, max_hits: int = 4):
+    """Keep context small, diverse, and strong for the answer model."""
+    selected = []
+    per_doc: dict[str, int] = {}
+    for hit in hits:
+        doc_key = f"{hit.source_repo}:{hit.file_path}"
+        if per_doc.get(doc_key, 0) >= 2:
+            continue
+        selected.append(hit)
+        per_doc[doc_key] = per_doc.get(doc_key, 0) + 1
+        if len(selected) >= max_hits:
+            break
+    return selected or list(hits[:max_hits])
+
+
+def _cited_numbers(answer: str, count: int) -> list[int]:
+    """Return source numbers the model cited, preserving first mention."""
+    seen: set[int] = set()
+    cited: list[int] = []
+    for raw in re.findall(r"\[(\d+)\]", answer):
+        number = int(raw)
+        if 1 <= number <= count and number not in seen:
+            cited.append(number)
+            seen.add(number)
+    return cited
 
 
 def _use_openai_answer(settings: Settings) -> bool:
@@ -556,12 +595,12 @@ async def _answer_from_hits(
     hits,
     degraded: bool = False,
 ) -> AskResponse:
-    """Ask Ollama for a grounded answer over already-retrieved chunks.
+    """Ask the configured provider for a grounded answer over retrieved chunks.
 
-    degraded means retrieval already failed to reach Ollama for this
-    request. Calling it again for synthesis would spend the full answer
-    timeout to reach the same conclusion, so the excerpt fallback is
-    returned straight away.
+    degraded means retrieval already failed to reach embeddings for this
+    request. Calling generation after degraded retrieval would hide the
+    weaker evidence path, so the excerpt fallback is returned straight
+    away.
     """
     if not hits:
         return AskResponse(
@@ -572,21 +611,26 @@ async def _answer_from_hits(
     if degraded:
         return _fallback_answer_from_hits(hits, unavailable=True)
 
+    answer_hits = _select_answer_hits(hits)
     source_lines = []
     sources_by_id = {}
-    for index, hit in enumerate(hits, start=1):
+    for index, hit in enumerate(answer_hits, start=1):
         source = _source_from_hit(hit)
         sources_by_id[index] = source
         source_lines.append(
             f"[{index}] repo: {source.repo}\n"
             f"file: {source.file}\n"
+            f"title: {source.title}\n"
+            f"type: {source.doc_type}\n"
             f"excerpt: {_prompt_excerpt(hit.text, question)}"
         )
 
     prompt = (
         "Answer using only these excerpts. If they do not answer the question, "
         "say that plainly. Return at most two complete sentences. "
-        "Cite facts with [1], [2], etc.\n\n"
+        "Cite facts with [1], [2], etc. Do not volunteer model names, hardware, "
+        "ports, or operational details unless the user asks and the excerpts "
+        "state them clearly.\n\n"
         f"Question: {question}\n\nExcerpts:\n\n"
         + "\n\n".join(source_lines)
     )
@@ -620,7 +664,7 @@ async def _answer_from_hits(
     except httpx.TimeoutException:
         return _fallback_answer_from_hits(hits)
     except httpx.HTTPError as exc:
-        # Connection refused, DNS failure, or a non-200 from Ollama.
+        # Connection refused, DNS failure, or a non-200 from the answer provider.
         # Retrieval already succeeded, so returning the excerpts beats
         # turning a synthesis outage into a 500 on /ask.
         logger.warning(
@@ -641,8 +685,17 @@ async def _answer_from_hits(
         )
     selected_sources: list[AskSource] = []
     declined = _answer_declines(answer)
-    if not selected_sources and not declined:
-        selected_sources = [_source_from_hit(hit, question=question) for hit in hits[:3]]
+    if not declined:
+        cited = _cited_numbers(answer, len(answer_hits))
+        if cited:
+            selected_sources = [
+                _source_from_hit(answer_hits[index - 1], question=question)
+                for index in cited
+            ]
+        else:
+            selected_sources = [
+                _source_from_hit(hit, question=question) for hit in answer_hits[:3]
+            ]
     return AskResponse(answer=answer, sources=selected_sources)
 
 
@@ -731,7 +784,7 @@ async def search_corpus_get(
 
 @app.post("/ask", response_model=AskResponse)
 async def ask_corpus(payload: SearchRequest, request: Request) -> AskResponse:
-    """Public corpus Q&A: retrieve with /search, then synthesize with Ollama."""
+    """Public corpus Q&A: retrieve with /search, then synthesize."""
     if not _is_internal(request):
         refusal = _private_boundary_refusal(payload.query)
         if refusal:

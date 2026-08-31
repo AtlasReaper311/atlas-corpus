@@ -1,6 +1,6 @@
 <!--
   corpus-search.html
-  Self-contained semantic search over the Atlas Systems corpus.
+  Self-contained grounded question widget over the Atlas Systems corpus.
 
   Drop this whole block into any page. It inherits the site's CSS
   custom properties and fonts when present and carries hex fallbacks.
@@ -86,7 +86,7 @@
     .cs-w-source:hover { background: rgba(245, 166, 35, 0.12); }
   </style>
 
-  <p class="cs-w-head"><strong>ATLAS CORPUS</strong> // ask the estate anything it has written</p>
+  <p class="cs-w-head"><strong>ATLAS CORPUS</strong> // ask public-classified Atlas sources</p>
 
   <form class="cs-w-form" id="csw-form">
     <label for="csw-q" class="cs-w-visually-hidden" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">Search query</label>
@@ -119,6 +119,7 @@
       }
 
       function sourceUrl(source) {
+        if (source.url || source.public_url) return source.url || source.public_url;
         return "https://github.com/AtlasReaper311/" +
           encodeURIComponent(source.repo) + "/blob/main/" +
           source.file.split("/").map(encodeURIComponent).join("/");
@@ -143,7 +144,7 @@
             tag.target = "_blank";
             tag.rel = "noopener noreferrer";
             tag.title = source.excerpt;
-            tag.textContent = source.repo + "/" + source.file;
+            tag.textContent = source.title || source.repo + "/" + source.file;
             sources.appendChild(tag);
           });
           item.appendChild(sources);

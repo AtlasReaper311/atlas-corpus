@@ -21,9 +21,10 @@ A queryable knowledge layer over the public Atlas Systems estate. Public reposit
 ## Architecture
 
 ```text
-public GitHub repositories
+public classification projection
 approved public ADRs and decisions
 published work/*.html and writing/*.html
+curated public anchor docs
         │
         │ ingest
         ▼
@@ -42,7 +43,7 @@ ChromaDB atlas_corpus
         └── GET/POST /ask
 ```
 
-The source boundary is deliberate. The corpus uses GitHub's public repository listing for account-wide README discovery, explicitly configured public files for additional documents, and published site HTML. Local host context directories are not mounted into the corpus container and private repositories are not ingestion sources.
+The source boundary is deliberate. The corpus uses Atlas's public classification projection as the repository allowlist, explicitly configured public files for additional documents, published site HTML, public ADRs, and curated public anchor docs. Private repositories and owner-local context are not ingestion sources.
 
 A refresh also removes chunks whose source document no longer belongs to the approved public source set. Tightening the public boundary therefore converges the existing vector store instead of leaving stale private or retired source material behind.
 
@@ -69,12 +70,13 @@ Ollama stays on the host and owns the GPU. The container reaches it through `hos
 
 A document enters the corpus only through one of these paths:
 
-1. README content from a non-fork, non-archived public repository returned by GitHub's public user repository API.
-2. A pinned file explicitly listed in `EXTRA_FILES` from a public repository.
+1. README content from a non-fork, non-archived repository present in the Atlas public classification projection.
+2. A pinned file explicitly listed in `EXTRA_FILES` from a public-classified repository.
 3. Published HTML under the configured `work/` or `writing/` prefixes in the public site repository.
 4. Approved public ADRs gathered from the public infrastructure repository.
+5. Curated public anchor docs explicitly listed in `CURATED_DOCS` and mounted read-only at `DOCS_DIR`.
 
-The corpus does not mount owner-local context documents. Repository authentication must not widen the source set: a token may increase API rate limits, but private repository visibility is not treated as permission to ingest private content.
+Repository authentication must not widen the source set: a token may increase API rate limits, but private repository visibility is not treated as permission to ingest private content. GitHub visibility alone is also not enough; the classification projection is the authority for inclusion.
 
 Removed documents are pruned by `doc_key` on refresh. Existing chunks that are not present in the current approved source index are deleted from Chroma.
 
@@ -99,7 +101,7 @@ The tunnel does not turn every local endpoint into a public contract. Only the d
 | `GET/POST` | `/ask` | none, rate-limited | Grounded answer with cited public sources |
 | `GET` | `/index` | none | Current public source documents and chunk counts |
 | `POST` | `/refresh` | `x-corpus-secret` | Start a single-flight public-source re-ingest |
-| `GET` | `/health` | none | Service, Chroma, Ollama, and corpus health |
+| `GET` | `/health` | none | Service, Chroma, embedding runtime, and corpus health |
 | `GET` | `/stats` | none | Aggregate query statistics without IP logging |
 
 ## Keeping it current
@@ -110,7 +112,7 @@ Chunk IDs are deterministic from repository, path, and chunk index. Unchanged ch
 
 ## Search behavior
 
-Search combines the stored embeddings with the corpus's retrieval layer and returns provenance for each result. Query logging stores query text, result count, and latency locally; IP addresses are not logged.
+Search combines vector recall with BM25 lexical recall, then applies small boosts for authoritative/recent sources and keeps source diversity in the final result set. Each result carries provenance for citations, including source class, scope, lifecycle, heading path, source URL, public URL, source ref, source hash, and document type. Query logging stores query text, result count, and latency locally; IP addresses are not logged.
 
 The public question boundary also rejects categories that are outside the public estate, including credentials, private memory, employer material, and private application or academic material. The stronger control is still source selection: content outside the approved public source set should never reach Chroma in the first place.
 
@@ -129,13 +131,13 @@ Use the repository's current CI workflow as the authority for the complete valid
 
 **Refresh converges.** Deterministic chunk identities plus removed-source pruning mean the vector store represents the current approved source set rather than an append-only history of everything it has ever seen.
 
-**Ollama remains local.** Embedding and generation run on owner-controlled hardware. The public service exposes bounded search behavior, not the underlying model runtime.
+**Model runtime remains local.** Embeddings stay on Ollama with `nomic-embed-text`; answer generation uses the configured local OpenAI-compatible endpoint. The public service exposes bounded search behavior, not the underlying runtime internals.
 
 **Mutation fails closed.** `/refresh` requires a secret and the service refuses to boot without that configuration. Public read access never implies public write authority.
 
 ## How it fits into Atlas Systems
 
-`atlas-corpus` supplies public semantic search to the Atlas Systems site and API while using the same local Ollama infrastructure as the wider AI stack. Its inputs follow the public/private estate boundary defined by `atlas-infra`, so the search surface can describe the public system without becoming a side channel into owner-operated repositories.
+`atlas-corpus` supplies public semantic search to the Atlas Systems site and API while using local Atlas infrastructure for embeddings and grounded answer generation. Its inputs follow the public/private estate boundary defined by `atlas-infra`, so the search surface can describe the public system without becoming a side channel into private or owner-local repositories.
 
 The transferable pattern is to make data publication explicit at ingestion time; filtering after retrieval is too late once private material has entered the index.
 

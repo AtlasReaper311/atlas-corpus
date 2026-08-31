@@ -28,9 +28,9 @@ services:
     environment:
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
-      - ANSWER_MODEL=${ANSWER_MODEL:-mistral:7b}
-      - ANSWER_PROVIDER=${ANSWER_PROVIDER:-ollama}
-      - ANSWER_OPENAI_BASE_URL=${ANSWER_OPENAI_BASE_URL:-}
+      - ANSWER_MODEL=${ANSWER_MODEL:-qwen3.5-mtp}
+      - ANSWER_PROVIDER=${ANSWER_PROVIDER:-openai}
+      - ANSWER_OPENAI_BASE_URL=${ANSWER_OPENAI_BASE_URL:-http://host.docker.internal:8095/v1}
       - ANSWER_OPENAI_MODEL=${ANSWER_OPENAI_MODEL:-qwen3.5-mtp}
       - ANSWER_OPENAI_API_KEY=${ANSWER_OPENAI_API_KEY:-}
       - ANSWER_OPENAI_MAX_TOKENS=${ANSWER_OPENAI_MAX_TOKENS:-140}
@@ -43,11 +43,14 @@ services:
       - COLLECTION_NAME=${COLLECTION_NAME:-atlas_corpus}
       - GITHUB_OWNER=${GITHUB_OWNER:-AtlasReaper311}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - PUBLIC_CLASSIFICATION_FILE=${PUBLIC_CLASSIFICATION_FILE:-atlas-infra:policy/public-repository-classifications.json}
       - EXCLUDE_REPOS=${EXCLUDE_REPOS:-AtlasReaper311}
       - SITE_REPO=${SITE_REPO:-atlas-systems}
       - CASE_STUDY_PREFIX=${CASE_STUDY_PREFIX:-work/}
       - ARTICLE_PREFIX=${ARTICLE_PREFIX:-writing/}
       - EXTRA_FILES=${EXTRA_FILES:-atlas-infra:docs/decisions.md:decision}
+      - DOCS_DIR=${DOCS_DIR:-/srv/docs}
+      - CURATED_DOCS=${CURATED_DOCS:-ramone-public-context.md:ramone-public,ramone-public-faq.md:ramone-public,atlas-public-boundaries.md:policy,atlas-public-context.md:portfolio,atlas-public-service-map.md:portfolio,atlas-public-retrieval-map.md:policy,atlas-brand.md:brand,specular-core-public-profile.md:infra-public}
       - CHUNK_WORDS=${CHUNK_WORDS:-512}
       - CHUNK_OVERLAP_WORDS=${CHUNK_OVERLAP_WORDS:-64}
       - TOP_K_DEFAULT=${TOP_K_DEFAULT:-5}
@@ -65,6 +68,7 @@ services:
       - CORPUS_SECRET=${CORPUS_SECRET:?CORPUS_SECRET must be set; generate with `python -c "import secrets; print(secrets.token_urlsafe(48))"`}
     volumes:
       - corpus-data:/srv/data
+      - ./docs:/srv/docs:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

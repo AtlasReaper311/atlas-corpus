@@ -9,6 +9,7 @@ one process and show the difference on real queries.
 
 import logging
 import time
+from datetime import datetime, timezone
 
 import chromadb
 from chromadb.api.models.Collection import Collection
@@ -75,29 +76,105 @@ def search(collection: Collection, embedding: list[float], k: int) -> list[Searc
         result["documents"][0], result["metadatas"][0], result["distances"][0]
     ):
         hits.append(
-            SearchHit(
-                text=document,
-                score=round(1.0 - float(distance), 4),
-                source_repo=str(meta.get("source_repo", "")),
-                file_path=str(meta.get("file_path", "")),
-                doc_type=str(meta.get("doc_type", "")),
-                last_updated=str(meta.get("last_updated", "")),
-                chunk_index=int(meta.get("chunk_index", 0)),
-            )
+            _hit_from(document, meta, 1.0 - float(distance))
         )
     return hits
 
 
 def _hit_from(document: str, meta: dict, score: float) -> SearchHit:
+    chunk_index = int(meta.get("chunk_index", 0))
+    source_repo = str(meta.get("source_repo", ""))
+    file_path = str(meta.get("file_path", ""))
     return SearchHit(
+        id=str(meta.get("source_id") or f"{source_repo}/{file_path}#{chunk_index}"),
         text=document,
         score=round(float(score), 4),
-        source_repo=str(meta.get("source_repo", "")),
-        file_path=str(meta.get("file_path", "")),
+        source_repo=source_repo,
+        file_path=file_path,
         doc_type=str(meta.get("doc_type", "")),
         last_updated=str(meta.get("last_updated", "")),
-        chunk_index=int(meta.get("chunk_index", 0)),
+        chunk_index=chunk_index,
+        source_title=str(meta.get("source_title", "")),
+        source_url=str(meta.get("source_url", "")),
+        public_url=str(meta.get("public_url", "")),
+        heading=str(meta.get("heading", "")),
+        heading_path=str(meta.get("heading_path", "")),
+        source_class=str(meta.get("source_class", "")),
+        source_scope=str(meta.get("source_scope", "")),
+        source_lifecycle=str(meta.get("source_lifecycle", "")),
+        runtime_service=bool(meta.get("runtime_service", False)),
+        source_authority=str(meta.get("source_authority", "")),
+        source_ref=str(meta.get("source_ref", "")),
+        source_sha=str(meta.get("source_sha", "")),
+        source_updated=str(meta.get("source_updated", "")),
+        content_hash=str(meta.get("content_hash", "")),
+        chunk_type=str(meta.get("chunk_type", "")),
+        language=str(meta.get("language", "")),
+        symbol=str(meta.get("symbol", "")),
+        key=str(meta.get("key", "")),
     )
+
+
+def _metadata_boost(meta: dict) -> float:
+    """Small score nudges for authoritative and recent public sources."""
+    boost = 0.0
+    lifecycle = str(meta.get("source_lifecycle", "")).lower()
+    if lifecycle == "production":
+        boost += 0.035
+    elif lifecycle in {"active", "accepted"}:
+        boost += 0.025
+    elif lifecycle == "experimental":
+        boost += 0.005
+    if str(meta.get("doc_type", "")).lower() in {"adr", "decision", "policy", "ramone-public"}:
+        boost += 0.02
+    if str(meta.get("source_class", "")).lower() == "curated-public":
+        boost += 0.02
+    updated = str(meta.get("source_updated") or meta.get("last_updated") or "")
+    try:
+        parsed = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = None
+    if parsed:
+        age_days = max(0, (datetime.now(timezone.utc) - parsed).days)
+        if age_days <= 30:
+            boost += 0.02
+        elif age_days <= 120:
+            boost += 0.01
+    return boost
+
+
+def _rank_candidates(
+    fused: list[tuple[str, float]],
+    cached: dict[str, tuple[str, dict, float]],
+    k: int,
+) -> list[str]:
+    """Apply conservative metadata boosts and keep source diversity."""
+    ranked = sorted(
+        (
+            (cid, score + _metadata_boost(cached[cid][1]))
+            for cid, score in fused
+            if cid in cached
+        ),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    selected: list[str] = []
+    per_doc: dict[str, int] = {}
+    for cid, _score in ranked:
+        meta = cached[cid][1]
+        doc_key = str(meta.get("doc_key") or f"{meta.get('source_repo', '')}:{meta.get('file_path', '')}")
+        if per_doc.get(doc_key, 0) >= 2:
+            continue
+        selected.append(cid)
+        per_doc[doc_key] = per_doc.get(doc_key, 0) + 1
+        if len(selected) >= k:
+            return selected
+    for cid, _score in ranked:
+        if cid not in selected:
+            selected.append(cid)
+        if len(selected) >= k:
+            break
+    return selected
 
 
 def hybrid_search(
@@ -144,12 +221,12 @@ def hybrid_search(
     bm25_ranking = index.ranked_ids(query_text, pool)
 
     fused = rrf_fuse([vector_ranking, bm25_ranking])
-    top_ids = [cid for cid, _ in fused[:k]]
+    candidate_ids = [cid for cid, _ in fused[: min(max(k * 4, 20), len(fused))]]
 
     # BM25-only ids never went through the vector query, so their true
     # cosine is not known yet; fetch their stored embeddings and compute
     # it, so every returned score is a real similarity to this query.
-    missing = [cid for cid in top_ids if cid not in cached]
+    missing = [cid for cid in candidate_ids if cid not in cached]
     if missing:
         fetched = collection.get(
             ids=missing,
@@ -171,6 +248,8 @@ def hybrid_search(
             cached[cid] = (document, meta, similarity)
 
     hits: list[SearchHit] = []
+    top_ids = _rank_candidates(fused, cached, k)
+
     for cid in top_ids:
         entry = cached.get(cid)
         if entry is None:

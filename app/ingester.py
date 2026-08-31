@@ -1,10 +1,11 @@
 """Public-source document ingestion for the Atlas Systems corpus.
 
 Sources, in ingest order:
-  1. Every non-fork, non-archived public repository README
-  2. Explicit pinned files from public repositories
+  1. README files from repositories in the public classification projection
+  2. Explicit pinned files from public-classified repositories
   3. Published site HTML under work/ and writing/
   4. Public architecture decision records
+  5. Curated public anchor docs mounted read-only from docs/
 
 Local mounted context documents are intentionally not ingested. The corpus is a
 public projection, so authenticated or owner-local material must never become a
@@ -20,6 +21,7 @@ import json
 import logging
 import time
 from base64 import b64decode
+from dataclasses import dataclass
 from html.parser import HTMLParser
 
 import httpx
@@ -28,6 +30,18 @@ from chromadb.api.models.Collection import Collection
 from app.adr import gather_adrs
 from app.chunking import chunk_document
 from app.config import Settings
+from app.source_policy import (
+    SourceDocument,
+    content_hash,
+    github_blob_url,
+    ingest_timestamp,
+    parse_public_classification,
+    read_curated_doc,
+    repo_metadata,
+    site_public_url,
+    source_id,
+    source_title,
+)
 
 logger = logging.getLogger(__name__)
 GITHUB_API = "https://api.github.com"
@@ -35,6 +49,16 @@ GITHUB_API = "https://api.github.com"
 
 class IngestStats(dict):
     """Counters for one ingest pass; a dict so it JSON-serialises as-is."""
+
+
+@dataclass(frozen=True)
+class GitHubFile:
+    """Public file body and GitHub provenance."""
+
+    text: str
+    sha: str
+    html_url: str
+    download_url: str
 
 
 class GitHub:
@@ -74,6 +98,11 @@ class GitHub:
 
     async def get_file(self, owner: str, repo: str, path: str) -> str | None:
         """One public file's text via the contents API, or None when absent."""
+        file = await self.get_file_info(owner, repo, path)
+        return file.text if file else None
+
+    async def get_file_info(self, owner: str, repo: str, path: str) -> GitHubFile | None:
+        """One public file's text and provenance, or None when absent."""
         try:
             response = await self._get(f"/repos/{owner}/{repo}/contents/{path}")
         except httpx.HTTPStatusError as exc:
@@ -83,7 +112,12 @@ class GitHub:
         payload = response.json()
         if payload.get("encoding") != "base64":
             return None
-        return b64decode(payload["content"]).decode("utf-8", errors="replace")
+        return GitHubFile(
+            text=b64decode(payload["content"]).decode("utf-8", errors="replace"),
+            sha=str(payload.get("sha") or ""),
+            html_url=str(payload.get("html_url") or github_blob_url(owner, repo, path)),
+            download_url=str(payload.get("download_url") or ""),
+        )
 
     async def list_html_under(self, owner: str, repo: str, prefix: str) -> list[str]:
         """Paths of public HTML files under a prefix, via the recursive tree."""
@@ -168,30 +202,62 @@ def _chunk_id(repo: str, path: str, index: int) -> str:
     return hashlib.sha1(f"{repo}:{path}:{index}".encode()).hexdigest()
 
 
-async def _gather_documents(
-    gh: GitHub, settings: Settings
-) -> list[tuple[str, str, str, str]]:
+async def _gather_documents(gh: GitHub, settings: Settings) -> list[SourceDocument]:
     """Collect only approved public source documents."""
-    documents: list[tuple[str, str, str, str]] = []
+    documents: list[SourceDocument] = []
     owner = settings.github_owner
     excluded = {name.strip() for name in settings.exclude_repos.split(",") if name.strip()}
 
-    for repo in await gh.list_repos(owner):
-        name = repo["name"]
+    policy_repo, policy_path = settings.public_classification_file.split(":", 1)
+    policy_file = await gh.get_file_info(owner, policy_repo, policy_path)
+    if not policy_file:
+        logger.warning("public classification projection missing: %s/%s", policy_repo, policy_path)
+        return []
+    allowed = parse_public_classification(policy_file.text)
+    logger.info("loaded %d public-classified repo(s) from %s/%s", len(allowed), policy_repo, policy_path)
+
+    repos_by_name = {repo["name"]: repo for repo in await gh.list_repos(owner)}
+    for name in sorted(allowed):
+        repo_policy = allowed[name]
+        repo = repos_by_name.get(name)
+        if not repo:
+            logger.warning("classified repo missing from public GitHub list: %s", name)
+            continue
         if name in excluded or repo.get("fork") or repo.get("archived") or repo.get("private"):
             continue
-        readme = await gh.get_file(owner, name, "README.md")
+        readme = await gh.get_file_info(owner, name, "README.md")
         if readme:
-            documents.append((name, "README.md", "readme", readme))
+            default_branch = str(repo.get("default_branch") or "main")
+            metadata = {
+                **repo_metadata(repo_policy),
+                "source_ref": default_branch,
+                "source_sha": readme.sha,
+                "source_url": readme.html_url,
+                "public_url": readme.html_url,
+                "source_updated": str(repo.get("pushed_at") or repo.get("updated_at") or ""),
+            }
+            documents.append(SourceDocument(name, "README.md", "readme", readme.text, metadata))
 
     for entry in settings.extra_files.split(","):
         entry = entry.strip()
         if not entry:
             continue
         repo, path, doc_type = entry.split(":", 2)
-        text = await gh.get_file(owner, repo, path)
-        if text:
-            documents.append((repo, path, doc_type, text))
+        repo_policy = allowed.get(repo)
+        if repo not in allowed or repo in excluded:
+            logger.warning("extra file skipped because repo is not public-classified: %s/%s", repo, path)
+            continue
+        file = await gh.get_file_info(owner, repo, path)
+        if file:
+            metadata = {
+                **repo_metadata(repo_policy),
+                "source_ref": "main",
+                "source_sha": file.sha,
+                "source_url": file.html_url,
+                "public_url": file.html_url,
+                "source_updated": "",
+            }
+            documents.append(SourceDocument(repo, path, doc_type, file.text, metadata))
         else:
             logger.warning("extra public file missing on GitHub: %s/%s", repo, path)
 
@@ -200,9 +266,40 @@ async def _gather_documents(
         (settings.article_prefix, "article"),
     ):
         for path in await gh.list_html_under(owner, settings.site_repo, prefix):
-            html = await gh.get_file(owner, settings.site_repo, path)
-            if html:
-                documents.append((settings.site_repo, path, doc_type, html_to_text(html)))
+            file = await gh.get_file_info(owner, settings.site_repo, path)
+            if file:
+                metadata = {
+                    **repo_metadata(allowed.get(settings.site_repo)),
+                    "source_ref": "main",
+                    "source_sha": file.sha,
+                    "source_url": file.html_url,
+                    "public_url": site_public_url(path),
+                    "source_updated": "",
+                }
+                documents.append(
+                    SourceDocument(settings.site_repo, path, doc_type, html_to_text(file.text), metadata)
+                )
+
+    for entry in settings.curated_docs.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        filename, doc_type = entry.split(":", 1)
+        text = read_curated_doc(settings.docs_dir, filename)
+        if not text:
+            logger.warning("curated public doc missing from docs_dir: %s", filename)
+            continue
+        path = f"docs/{filename}"
+        metadata = {
+            **repo_metadata(allowed.get("atlas-corpus")),
+            "source_class": "curated-public",
+            "source_ref": "main",
+            "source_sha": content_hash(text),
+            "source_url": github_blob_url(owner, "atlas-corpus", path),
+            "public_url": github_blob_url(owner, "atlas-corpus", path),
+            "source_updated": "",
+        }
+        documents.append(SourceDocument("atlas-corpus", path, doc_type, text, metadata))
 
     return documents
 
@@ -235,13 +332,37 @@ async def run_ingest(
     started = time.time()
     gh = GitHub(client, settings)
     documents = await _gather_documents(gh, settings)
-    documents.extend(await gather_adrs(client, settings))
-    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    documents.extend(
+        SourceDocument(
+            repo,
+            path,
+            doc_type,
+            text,
+            {
+                **repo_metadata(None),
+                "source_scope": "public",
+                "source_lifecycle": "accepted",
+                "source_ref": "main",
+                "source_sha": content_hash(text),
+                "source_url": github_blob_url(settings.github_owner, repo, path),
+                "public_url": github_blob_url(settings.github_owner, repo, path),
+                "source_updated": "",
+            },
+        )
+        for repo, path, doc_type, text in await gather_adrs(client, settings)
+    )
+    now_iso = ingest_timestamp()
 
     stats = IngestStats(documents=0, chunks=0, deleted=0, skipped=0)
     index: dict[str, dict] = {}
 
-    for repo, path, doc_type, text in documents:
+    for document in documents:
+        repo, path, doc_type, text = (
+            document.repo,
+            document.path,
+            document.doc_type,
+            document.text,
+        )
         chunk_objs = chunk_document(
             path, text, doc_type, settings.chunk_words, settings.chunk_overlap_words
         )
@@ -263,6 +384,16 @@ async def run_ingest(
                     "doc_type": doc_type,
                     "last_updated": now_iso,
                     "chunk_index": i,
+                    "source_id": source_id(repo, path, i),
+                    "source_title": source_title(
+                        repo,
+                        path,
+                        chunk_objs[i].metadata.get("heading_path")
+                        or chunk_objs[i].metadata.get("heading"),
+                    ),
+                    "content_hash": content_hash(text),
+                    "word_count": len(chunks[i].split()),
+                    **document.metadata,
                     **chunk_objs[i].metadata,
                 }
                 for i in range(len(chunks))
@@ -282,6 +413,7 @@ async def run_ingest(
             "doc_type": doc_type,
             "chunks": len(chunks),
             "last_updated": now_iso,
+            **document.metadata,
         }
         logger.info("ingested %s/%s: %d chunks (%s)", repo, path, len(chunks), doc_type)
 

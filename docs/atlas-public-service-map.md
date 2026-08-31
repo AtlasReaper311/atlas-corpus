@@ -1,6 +1,6 @@
 # Atlas Systems Public Service Map
 
-Last updated: 2026-07-13
+Last updated: 2026-08-31
 
 This file gives public-safe service context for Atlas Systems.
 
@@ -21,8 +21,8 @@ This file gives public-safe service context for Atlas Systems.
 | Repo | Public role |
 |---|---|
 | `atlas-systems` | Main static website. |
-| `atlas-corpus` | Public retrieval service using FastAPI, ChromaDB, embeddings, and Ollama. |
-| `ollama-rag-kit` | Public Ramone upstream for browser chat. |
+| `atlas-corpus` | Public retrieval and answer service using FastAPI, ChromaDB, Ollama embeddings, and the shared local generation endpoint. |
+| `ollama-rag-kit` | Public Ramone upstream for browser chat, prompt packing, streaming, and short browser-session memory. |
 | `ramone-edge` | Cloudflare Worker front for public Ramone. |
 | `ramone-memory` | Private/local long-term memory service; not public browser memory. |
 | `ramone-voice-trigger` | Private voice-to-deploy path. |
@@ -51,7 +51,7 @@ These are public-safe operational facts, not public invitations to connect:
 | 10200 / 8880 | Kokoro TTS. |
 | 10300 | Faster Whisper via Wyoming protocol. |
 | 10400 | OpenWakeWord via Wyoming protocol. |
-| 11434 | Ollama raw API; Access-gated if exposed through Cloudflare. |
+| 11434 | Ollama raw API for embeddings and local model operations; Access-gated if exposed through Cloudflare. |
 
 ## Tooling State
 
@@ -61,6 +61,6 @@ Mutating tools should stay dry-run/default-safe until valves are deliberately tu
 
 ## Current Fixed State
 
-The latest Ramone voice and memory regression is fixed as of the 2026-07-13 audit. The failure mode remains documented because it can recur after Home Assistant, Docker, WSL, Ollama, or secret changes.
+The latest Ramone voice and memory regression is fixed as of the 2026-07-13 audit. The failure mode remains documented because it can recur after Home Assistant, Docker, WSL, local model routing, or secret changes.
 
 Public Ramone retrieval unification is complete: public browser Ramone uses `ollama-rag-kit` and `atlas-corpus`, not private long-term memory.
