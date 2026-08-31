@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
+from types import SimpleNamespace
 
 from app.chunking import chunk_document
 from app.models import SearchHit
 from app.searcher import hybrid_search
+from app.ingester import _gather_documents
+from app.config import Settings
 from app.source_policy import (
     CLASSIFICATION_AUTHORITY,
     github_blob_url,
@@ -39,6 +43,56 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual(meta["source_lifecycle"], "production")
         self.assertTrue(meta["runtime_service"])
         self.assertEqual(meta["source_authority"], CLASSIFICATION_AUTHORITY)
+
+    def test_internal_classification_is_not_a_public_source(self):
+        repos = parse_public_classification(
+            '{"repositories": [{"repository": "AtlasReaper311/ramone-memory", "scope": "internal"}]}'
+        )
+        self.assertEqual("internal", repos["ramone-memory"].scope)
+
+    def test_document_gathering_excludes_internal_repositories(self):
+        class FakeGitHub:
+            async def get_file_info(self, owner, repo, path):
+                if repo == "atlas-infra" and path == "policy/public-repository-classifications.json":
+                    return SimpleNamespace(
+                        text=(
+                            '{"repositories": ['
+                            '{"repository":"AtlasReaper311/public-repo","scope":"public"},'
+                            '{"repository":"AtlasReaper311/private-repo","scope":"internal"}'
+                            ']}'
+                        ),
+                        sha="policy",
+                        html_url="https://github.com/AtlasReaper311/atlas-infra/blob/main/policy/public-repository-classifications.json",
+                    )
+                if path == "README.md":
+                    return SimpleNamespace(
+                        text=f"# {repo}", sha=repo, html_url=f"https://example.test/{repo}"
+                    )
+                return None
+
+            async def list_repos(self, owner):
+                return [
+                    {"name": "public-repo", "default_branch": "main"},
+                    {"name": "private-repo", "default_branch": "main"},
+                ]
+
+            async def list_html_under(self, owner, repo, prefix):
+                return []
+
+        settings = Settings(
+            public_classification_file="atlas-infra:policy/public-repository-classifications.json",
+            extra_files="",
+            curated_docs="",
+            case_study_prefix="never/",
+            article_prefix="never/",
+            adr_prefix="never/",
+        )
+
+        async def scenario():
+            return await _gather_documents(FakeGitHub(), settings)
+
+        documents = asyncio.run(scenario())
+        self.assertEqual(["public-repo"], [document.repo for document in documents])
 
     def test_source_urls_are_stable_for_github_and_site_pages(self):
         self.assertEqual(

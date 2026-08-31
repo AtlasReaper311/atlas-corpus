@@ -114,6 +114,19 @@ class HybridTests(unittest.TestCase):
         self.assertEqual("wrangler.toml", hits[0].file_path)
         self.assertEqual(0.0, hits[0].score)
 
+    def test_rank_prefers_distinct_documents_before_second_chunk(self):
+        collection = FakeCollection()
+        collection.ids = ["a-0", "a-1", "b-0"]
+        collection.documents = ["same answer one", "same answer two", "different answer"]
+        collection.metadatas = [
+            {"doc_key": "a:README.md", "source_repo": "a", "file_path": "README.md", "chunk_index": 0},
+            {"doc_key": "a:README.md", "source_repo": "a", "file_path": "README.md", "chunk_index": 1},
+            {"doc_key": "b:README.md", "source_repo": "b", "file_path": "README.md", "chunk_index": 0},
+        ]
+        collection.embeddings = [[1.0, 0.0], [0.99, 0.01], [0.98, 0.02]]
+        hits = hybrid_search(collection, HybridIndex(), [1.0, 0.0], "answer", 2, freshness_marker="r2")
+        self.assertEqual(["a", "b"], [hit.source_repo for hit in hits])
+
 
 if __name__ == "__main__":
     unittest.main()

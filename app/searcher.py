@@ -155,23 +155,33 @@ def _rank_candidates(
             for cid, score in fused
             if cid in cached
         ),
-        key=lambda item: item[1],
-        reverse=True,
+        key=lambda item: (-item[1], item[0]),
     )
     selected: list[str] = []
     per_doc: dict[str, int] = {}
+    # Give distinct documents a chance to represent the answer before using
+    # a second chunk from a document. This prevents a long README from
+    # crowding out directly relevant policy or service evidence.
     for cid, _score in ranked:
+        meta = cached[cid][1]
+        doc_key = str(meta.get("doc_key") or f"{meta.get('source_repo', '')}:{meta.get('file_path', '')}")
+        if doc_key in per_doc:
+            continue
+        selected.append(cid)
+        per_doc[doc_key] = 1
+        if len(selected) >= k:
+            return selected
+    # If the corpus has fewer than k documents, fill the remainder while
+    # retaining the two-chunk-per-document cap used by answer packing.
+    for cid, _score in ranked:
+        if cid in selected:
+            continue
         meta = cached[cid][1]
         doc_key = str(meta.get("doc_key") or f"{meta.get('source_repo', '')}:{meta.get('file_path', '')}")
         if per_doc.get(doc_key, 0) >= 2:
             continue
         selected.append(cid)
         per_doc[doc_key] = per_doc.get(doc_key, 0) + 1
-        if len(selected) >= k:
-            return selected
-    for cid, _score in ranked:
-        if cid not in selected:
-            selected.append(cid)
         if len(selected) >= k:
             break
     return selected

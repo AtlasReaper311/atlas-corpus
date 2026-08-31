@@ -43,7 +43,7 @@ ChromaDB atlas_corpus
         └── GET/POST /ask
 ```
 
-The source boundary is deliberate. The corpus uses Atlas's public classification projection as the repository allowlist, explicitly configured public files for additional documents, published site HTML, public ADRs, and curated public anchor docs. Private repositories and owner-local context are not ingestion sources.
+The source boundary is deliberate. The corpus uses Atlas's public classification projection as the repository allowlist, and only entries with `scope: public` are eligible. It also accepts explicitly configured public files, published site HTML, public ADRs, and curated public anchor docs. Internal repositories, private repositories, and owner-local context are not ingestion sources.
 
 A refresh also removes chunks whose source document no longer belongs to the approved public source set. Tightening the public boundary therefore converges the existing vector store instead of leaving stale private or retired source material behind.
 
@@ -76,7 +76,7 @@ A document enters the corpus only through one of these paths:
 4. Approved public ADRs gathered from the public infrastructure repository.
 5. Curated public anchor docs explicitly listed in `CURATED_DOCS` and mounted read-only at `DOCS_DIR`.
 
-Repository authentication must not widen the source set: a token may increase API rate limits, but private repository visibility is not treated as permission to ingest private content. GitHub visibility alone is also not enough; the classification projection is the authority for inclusion.
+Repository authentication must not widen the source set: a token may increase API rate limits, but private repository visibility is not treated as permission to ingest private content. GitHub visibility alone is also not enough; the classification projection and its public scope are the authority for inclusion.
 
 Removed documents are pruned by `doc_key` on refresh. Existing chunks that are not present in the current approved source index are deleted from Chroma.
 
@@ -112,7 +112,7 @@ Chunk IDs are deterministic from repository, path, and chunk index. Unchanged ch
 
 ## Search behavior
 
-Search combines vector recall with BM25 lexical recall, then applies small boosts for authoritative/recent sources and keeps source diversity in the final result set. Each result carries provenance for citations, including source class, scope, lifecycle, heading path, source URL, public URL, source ref, source hash, and document type. Query logging stores query text, result count, and latency locally; IP addresses are not logged.
+Search combines vector recall with BM25 lexical recall, then applies small boosts for authoritative/recent sources and gives distinct documents a chance to represent the answer before using a second chunk from one document. Each result carries provenance for citations, including source class, scope, lifecycle, heading path, source URL, public URL, source ref, source hash, and document type. Answer synthesis fails closed when the model does not return citations that map to the supplied excerpts. Query logging stores query text, result count, and latency locally; IP addresses are not logged.
 
 The public question boundary also rejects categories that are outside the public estate, including credentials, private memory, employer material, and private application or academic material. The stronger control is still source selection: content outside the approved public source set should never reach Chroma in the first place.
 

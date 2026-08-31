@@ -202,6 +202,26 @@ class AnswerFromHitsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer.answer, "It uses the shared endpoint. [1]")
         self.assertTrue(answer.sources)
 
+    async def test_uncited_model_answer_fails_closed(self):
+        class UncitedClient:
+            async def post(self, *args, **kwargs):
+                class Response:
+                    @staticmethod
+                    def raise_for_status():
+                        return None
+
+                    @staticmethod
+                    def json():
+                        return {"choices": [{"message": {"content": "Unsupported answer"}}]}
+
+                return Response()
+
+        answer = await _answer_from_hits(
+            UncitedClient(), _OpenAISettings(), "why 522", [_hit(0.8)]
+        )
+        self.assertEqual(answer.sources, [])
+        self.assertIn("not cited clearly enough", answer.answer)
+
 
 class _Settings:
     """Only the attributes _answer_from_hits reads before its request."""
