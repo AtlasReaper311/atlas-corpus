@@ -13,6 +13,14 @@ where a system came from; they are not current operational instructions.
 
 ## Public retrieval transition
 
+### What changed from the old Ramone setup?
+
+The public path moved toward a separated browser gateway, RAG service, and
+public-safe corpus: `ramone-edge` -> `ollama-rag-kit` -> `atlas-corpus`. Older
+arrangements mixed experimental retrieval or older model labels into handoffs.
+Those notes explain the transition, but the current path and current model are
+defined by present public source and runtime evidence.
+
 The public Ramone path was consolidated around `ramone-edge`, `ollama-rag-kit`,
 and `atlas-corpus`. Earlier notes and handoffs may mention other model names,
 older retrieval paths, or experimental arrangements. Those references describe

@@ -32,6 +32,15 @@ current relationships, not the private operator workspace.
 
 ## How the layers relate
 
+### How does Atlas Systems fit together?
+
+At the highest level, `atlas-systems` presents the public estate, `atlas-infra`
+defines public governance and contracts, `ramone-edge` exposes the public browser
+gateway, `ollama-rag-kit` runs the public Ramone request path, and `atlas-corpus`
+selects the public evidence used for grounded answers. Supporting public projects
+may measure delivery, publish status, or provide interface foundations, but they
+are supporting evidence rather than substitutes for the core public path.
+
 The public browser path is:
 
 `browser -> ramone-edge -> ollama-rag-kit -> atlas-corpus -> local generation`

@@ -647,8 +647,11 @@ async def _answer_from_hits(
         "Answer using only these excerpts. If they do not answer the question, "
         "say that plainly. Return at most two complete sentences. "
         "Cite facts with [1], [2], etc. Do not volunteer model names, hardware, "
-        "ports, or operational details unless the user asks and the excerpts "
-        "state them clearly. "
+        "ports, or operational details in unrelated answers. If the user asks "
+        "directly for the current model or runtime detail and an excerpt states "
+        "it clearly, answer that question directly rather than refusing or "
+        "telling the user to search elsewhere. For historical questions, use "
+        "clearly marked historical excerpts only to describe past states. "
         f"{ANSWER_GROUNDING_RULES}\n\n"
         f"Question: {question}\n\nExcerpts:\n\n"
         + "\n\n".join(source_lines)
