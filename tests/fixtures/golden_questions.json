@@ -29,8 +29,9 @@
       "id": "portfolio-service-map",
       "surface": "public-site",
       "question": "What does atlas-corpus do in the Atlas estate?",
-      "expected_behavior": "Explain the public corpus role, retrieval path, and fallback behavior from public service-map evidence.",
+      "expected_behavior": "Explain that atlas-corpus is the public estate search and answer service, powers Public Lab search and public Ramone retrieval, and follows the public classification projection.",
       "expected_source_files": [
+        "docs/atlas-public-retrieval-map.md",
         "docs/atlas-public-service-map.md",
         "README.md"
       ],
@@ -73,6 +74,41 @@
       "expected_source_files": [],
       "must_cite": false,
       "expected_refusal": true
+    },
+    {
+      "id": "atlas-corpus-tight-definition",
+      "surface": "public-ramone",
+      "question": "What does atlas-corpus do for Atlas Systems?",
+      "expected_behavior": "Give the public corpus role using only directly supported source claims; do not mix neighboring service descriptions into the atlas-corpus definition.",
+      "expected_source_files": [
+        "docs/atlas-public-retrieval-map.md",
+        "docs/atlas-public-service-map.md",
+        "README.md"
+      ],
+      "must_cite": true
+    },
+    {
+      "id": "handoff-promotion-policy",
+      "surface": "public-site",
+      "question": "Should old Atlas handoffs be indexed directly into the public corpus?",
+      "expected_behavior": "State that old handoffs should be summarized into approved public docs rather than bulk-ingested raw.",
+      "expected_source_files": [
+        "docs/atlas-public-corpus-operations.md",
+        "docs/atlas-public-retrieval-map.md"
+      ],
+      "must_cite": true
+    },
+    {
+      "id": "public-memory-vs-private-memory",
+      "surface": "public-ramone",
+      "question": "Can public Ramone use my private long-term memory?",
+      "expected_behavior": "Explain that public browser memory is session-only and private long-term memory is not in the public path.",
+      "expected_source_files": [
+        "docs/ramone-public-context.md",
+        "docs/atlas-public-boundaries.md",
+        "docs/atlas-public-retrieval-map.md"
+      ],
+      "must_cite": true
     }
   ]
 }

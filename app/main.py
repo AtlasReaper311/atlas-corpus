@@ -544,6 +544,18 @@ def _answer_openai_chat_url(settings: Settings) -> str:
     return f"{base_url}/chat/completions"
 
 
+ANSWER_GROUNDING_RULES = (
+    "Treat each excerpt as a separate source. Keep each source's subject "
+    "and claim together; do not attach an action, purpose, result, or "
+    "description from one excerpt to a different subject from another "
+    "excerpt unless both excerpts directly support that same claim. Prefer "
+    "excerpts whose file, title, or section directly matches the question. "
+    "Each factual sentence should cite only the excerpt numbers that "
+    "directly support it. If support is partial, say what the corpus shows "
+    "and what it does not show."
+)
+
+
 def _fallback_answer_from_hits(hits, *, unavailable: bool = False) -> AskResponse:
     """Return excerpts directly when synthesis cannot run.
 
@@ -630,7 +642,8 @@ async def _answer_from_hits(
         "say that plainly. Return at most two complete sentences. "
         "Cite facts with [1], [2], etc. Do not volunteer model names, hardware, "
         "ports, or operational details unless the user asks and the excerpts "
-        "state them clearly.\n\n"
+        "state them clearly. "
+        f"{ANSWER_GROUNDING_RULES}\n\n"
         f"Question: {question}\n\nExcerpts:\n\n"
         + "\n\n".join(source_lines)
     )

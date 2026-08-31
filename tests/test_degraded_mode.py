@@ -15,7 +15,7 @@ import unittest
 import httpx
 
 from app.hybrid import HybridIndex
-from app.main import _answer_from_hits, _fallback_answer_from_hits
+from app.main import ANSWER_GROUNDING_RULES, _answer_from_hits, _fallback_answer_from_hits
 from app.models import SearchHit
 from app.searcher import lexical_search
 
@@ -197,6 +197,8 @@ class AnswerFromHitsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["headers"], {"content-type": "application/json"})
         self.assertEqual(captured["json"]["model"], "qwen3.5-mtp")
         self.assertFalse(captured["json"]["stream"])
+        self.assertIn(ANSWER_GROUNDING_RULES, captured["json"]["messages"][0]["content"])
+        self.assertIn("Keep each source's subject and claim together", captured["json"]["messages"][0]["content"])
         self.assertEqual(answer.answer, "It uses the shared endpoint. [1]")
         self.assertTrue(answer.sources)
 

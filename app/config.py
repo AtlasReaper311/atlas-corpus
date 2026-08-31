@@ -85,6 +85,7 @@ class Settings(BaseSettings):
         "atlas-public-context.md:portfolio,"
         "atlas-public-service-map.md:portfolio,"
         "atlas-public-retrieval-map.md:policy,"
+        "atlas-public-corpus-operations.md:policy,"
         "atlas-brand.md:brand,"
         "specular-core-public-profile.md:infra-public"
     )

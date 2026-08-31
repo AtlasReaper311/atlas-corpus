@@ -8,6 +8,7 @@ docs/*
 !docs/atlas-brand.md
 !docs/atlas-cv-private-boundary.md
 !docs/atlas-public-boundaries.md
+!docs/atlas-public-corpus-operations.md
 !docs/atlas-public-case-studies.md
 !docs/atlas-public-context.md
 !docs/atlas-public-retrieval-map.md
