@@ -13,6 +13,7 @@ class SearchRequest(BaseModel):
 class SearchHit(BaseModel):
     """One retrieved chunk with its provenance."""
 
+    id: str = ""
     text: str
     score: float
     source_repo: str
@@ -20,6 +21,24 @@ class SearchHit(BaseModel):
     doc_type: str
     last_updated: str
     chunk_index: int
+    source_title: str = ""
+    source_url: str = ""
+    public_url: str = ""
+    heading: str = ""
+    heading_path: str = ""
+    source_class: str = ""
+    source_scope: str = ""
+    source_lifecycle: str = ""
+    runtime_service: bool = False
+    source_authority: str = ""
+    source_ref: str = ""
+    source_sha: str = ""
+    source_updated: str = ""
+    content_hash: str = ""
+    chunk_type: str = ""
+    language: str = ""
+    symbol: str = ""
+    key: str = ""
 
 
 class SearchResponse(BaseModel):
@@ -39,9 +58,19 @@ class SearchResponse(BaseModel):
 class AskSource(BaseModel):
     """One source excerpt that supports a synthesized answer."""
 
+    id: str = ""
     repo: str
     file: str
     excerpt: str
+    title: str = ""
+    url: str = ""
+    public_url: str = ""
+    heading: str = ""
+    doc_type: str = ""
+    source_class: str = ""
+    source_scope: str = ""
+    source_lifecycle: str = ""
+    source_ref: str = ""
 
 
 class AskResponse(BaseModel):
@@ -65,6 +94,16 @@ class IndexEntry(BaseModel):
     doc_type: str
     chunks: int
     last_updated: str
+    source_class: str = ""
+    source_scope: str = ""
+    source_lifecycle: str = ""
+    runtime_service: bool = False
+    source_authority: str = ""
+    source_url: str = ""
+    public_url: str = ""
+    source_ref: str = ""
+    source_sha: str = ""
+    source_updated: str = ""
 
 
 class IndexResponse(BaseModel):

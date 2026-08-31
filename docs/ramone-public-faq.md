@@ -1,20 +1,24 @@
 # Ramone Public FAQ Anchors
 
-Last updated: 2026-07-13
+Last updated: 2026-08-31
 
 This file gives short exact-match anchors for public Ramone retrieval.
 
 ## What machine does Ramone run on?
 
-Ramone runs on SPECULAR-CORE, Atlas's primary workstation and local production node. SPECULAR-CORE runs Ollama, `atlas-corpus`, `ollama-rag-kit`, Open WebUI, Docker services, voice components, and public-safe telemetry.
+Ramone runs on owner-operated Atlas infrastructure. Public answers should usually describe this as local Atlas infrastructure rather than volunteering exact model or hardware details.
 
-SPECULAR-CORE uses an AMD Ryzen 9 9950X3D, MSI Gaming Trio RTX 5070, 64 GB DDR5-6000 RAM, WD Black SN850X 2 TB NVMe, Crucial T705 2 TB NVMe, and a tuned cooling/overclocking profile.
+The public interface may display current model and hardware labels for visitors who want to inspect them.
 
 ## What is public Ramone's retrieval path?
 
-Public Ramone uses `ramone-edge` -> `ollama-rag-kit` -> `atlas-corpus` -> Ollama.
+Public Ramone uses `ramone-edge` -> `ollama-rag-kit` -> `atlas-corpus` -> the shared local generation endpoint.
 
 Public Ramone does not use private long-term `ramone-memory`.
+
+## What model should public Ramone name in answers?
+
+Public Ramone should not volunteer a specific model name or hardware profile in ordinary answers. If the user asks directly, it may answer from public source material and should frame the runtime as local Atlas infrastructure.
 
 ## What memory can public Ramone use?
 

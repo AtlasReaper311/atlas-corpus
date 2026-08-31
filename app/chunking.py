@@ -326,27 +326,33 @@ def _chunk_markdown(text: str, size: int, overlap: int) -> list[Chunk]:
     Headings inside code fences are body text, not boundaries.
     """
     base = {"chunk_type": "prose"}
-    sections: list[tuple[str, list[str]]] = [("", [])]
+    sections: list[tuple[str, str, list[str]]] = [("", "", [])]
+    heading_stack: list[tuple[int, str]] = []
     in_fence = False
     for line in text.splitlines():
         if line.lstrip().startswith("```"):
             in_fence = not in_fence
-            sections[-1][1].append(line)
+            sections[-1][2].append(line)
             continue
         heading = None if in_fence else _HEADING_RE.match(line)
         if heading:
-            sections.append((heading.group(2), [line]))
+            level = len(heading.group(1))
+            title = heading.group(2).strip()
+            heading_stack = [(lvl, text) for lvl, text in heading_stack if lvl < level]
+            heading_stack.append((level, title))
+            sections.append((title, " > ".join(text for _lvl, text in heading_stack), [line]))
         else:
-            sections[-1][1].append(line)
+            sections[-1][2].append(line)
 
     chunks: list[Chunk] = []
-    for heading_text, body_lines in sections:
+    for heading_text, heading_path, body_lines in sections:
         body = "\n".join(body_lines).strip()
         if not body:
             continue
         meta = dict(base)
         if heading_text:
             meta["heading"] = heading_text
+            meta["heading_path"] = heading_path or heading_text
         if _words(body) <= size:
             chunks.append(Chunk(body, meta))
             continue

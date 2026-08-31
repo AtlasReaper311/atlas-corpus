@@ -1,6 +1,6 @@
 # SPECULAR-CORE Public Machine Profile
 
-Last updated: 2026-07-13
+Last updated: 2026-08-31
 
 SPECULAR-CORE is the primary workstation and active local production node behind Atlas Systems. It runs the local AI stack, public-safe telemetry, RAG services, Open WebUI, Home Assistant voice components, Docker services, and audio/game-development workloads.
 
@@ -39,23 +39,24 @@ Public or public-facing services currently associated with SPECULAR-CORE include
 - `atlas-corpus`: public RAG/search service behind `corpus.atlas-systems.uk`.
 - `ollama-rag-kit`: public Ramone upstream behind `ramone.atlas-systems.uk`.
 - `specular-telemetry`: public-safe local machine telemetry, exposed through `specular-edge`.
-- Ollama: local model runtime. The raw tunnel is Cloudflare Access-gated, not open public infrastructure.
+- Shared local OpenAI-compatible generation endpoint: current public grounded answer route.
+- Ollama: local embedding runtime for `nomic-embed-text`. The raw tunnel is Cloudflare Access-gated, not open public infrastructure.
 
 Local-only services include Open WebUI, Home Assistant, Portainer, Uptime Kuma, Kokoro TTS, Faster Whisper, OpenWakeWord, and ComfyUI when launched.
 
 ## Performance Boundaries
 
-The RTX 5070's 12 GB VRAM class ceiling shapes model choice.
+The RTX 5070's 12 GB VRAM class ceiling shapes model choice. Public answers should usually describe this as local Atlas infrastructure rather than volunteering exact model or hardware details.
 
-Fast/public-friendly models:
+Current public grounded answer path:
 
-- `mistral:7b`
+- `qwen3.5-mtp` through the shared local OpenAI-compatible endpoint.
+- `nomic-embed-text` through Ollama for embeddings.
+
+Historical or private model notes:
+
 - `llama3.1:8b`
 - `llama3.2:3b`
-- `nomic-embed-text`
-
-Pressure models:
-
 - `ramone:latest`
 - `qwen3:14b`
 - `deepseek-coder-v2:16b`

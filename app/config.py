@@ -24,9 +24,9 @@ class Settings(BaseSettings):
     # the host gateway; extra_hosts maps it on native Linux too.
     ollama_host: str = "http://host.docker.internal:11434"
     embed_model: str = "nomic-embed-text"
-    answer_model: str = "mistral:7b"
-    answer_provider: str = "ollama"
-    answer_openai_base_url: str = ""
+    answer_model: str = "qwen3.5-mtp"
+    answer_provider: str = "openai"
+    answer_openai_base_url: str = "http://host.docker.internal:8095/v1"
     answer_openai_model: str = "qwen3.5-mtp"
     answer_openai_api_key: str = ""
     answer_openai_max_tokens: int = 140
@@ -57,8 +57,15 @@ class Settings(BaseSettings):
     # requests/hour, a full ingest uses more.
     github_owner: str = "AtlasReaper311"
     github_token: str = ""
-    # Repos never worth indexing: forks of other people's work, the
-    # profile repo, anything archived is skipped automatically.
+    # The public classification projection is the source allowlist.
+    # GitHub visibility alone is not enough authority for public corpus
+    # inclusion; a repo must be present here and not excluded below.
+    public_classification_file: str = (
+        "atlas-infra:policy/public-repository-classifications.json"
+    )
+    # Repos never worth indexing even if classified, comma-separated.
+    # The profile repo is public-classified but not useful as corpus
+    # evidence for Atlas services.
     exclude_repos: str = "AtlasReaper311"
     # HTML sources inside the site repo, prefix → doc_type.
     site_repo: str = "atlas-systems"
@@ -68,8 +75,19 @@ class Settings(BaseSettings):
     extra_files: str = "atlas-infra:docs/decisions.md:decision"
     adr_repo: str = "atlas-infra"
     adr_prefix: str = "docs/adrs"
-    # Local documents (the brand doc, the context doc) mounted read-only.
+    # Curated public docs mounted read-only. These are public anchor docs,
+    # not private/local context; keep the list explicit.
     docs_dir: str = "/srv/docs"
+    curated_docs: str = (
+        "ramone-public-context.md:ramone-public,"
+        "ramone-public-faq.md:ramone-public,"
+        "atlas-public-boundaries.md:policy,"
+        "atlas-public-context.md:portfolio,"
+        "atlas-public-service-map.md:portfolio,"
+        "atlas-public-retrieval-map.md:policy,"
+        "atlas-brand.md:brand,"
+        "specular-core-public-profile.md:infra-public"
+    )
 
     # Chunking: word-based, sized to approximate the specced 512 tokens
     # with 64 of overlap. nomic-embed-text's window (8192) dwarfs it.

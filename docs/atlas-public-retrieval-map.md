@@ -1,6 +1,6 @@
 # Atlas Systems Public Retrieval Map
 
-Last updated: 2026-07-13
+Last updated: 2026-08-31
 
 This file describes the public retrieval path and what material is allowed into it.
 
@@ -12,20 +12,21 @@ This file describes the public retrieval path and what material is allowed into 
 - Public browser Ramone retrieval through `ollama-rag-kit`.
 - Public-safe estate answers about repos, services, decisions, and case studies.
 
-Current local ingest rules:
+Current ingest rules:
 
-- Public GitHub READMEs for non-fork, non-archived repos owned by `AtlasReaper311`.
-- Pinned extra files such as public decision docs where configured.
+- README files from repositories present in the public classification projection.
+- Pinned extra files from public-classified repositories.
 - Selected website HTML under public Work/Writing paths.
-- Top-level local Markdown files in `docs/*.md`.
+- Approved public ADRs.
+- Explicitly listed curated public anchor docs from this directory.
 
-Nested folders are staging only unless the ingester changes.
+GitHub visibility alone is not enough for corpus inclusion. The public classification projection is the allowlist, and repository authentication must not widen the source set.
 
 ## Public Ramone Path
 
 Public browser Ramone uses:
 
-`ramone-edge` -> `ollama-rag-kit` -> `atlas-corpus` -> Ollama
+`ramone-edge` -> `ollama-rag-kit` -> `atlas-corpus` -> shared local generation endpoint
 
 Public browser memory is session-only. It can preserve context for the current visitor's current browser session, but it is not private long-term memory.
 
@@ -59,7 +60,7 @@ Public promotion should be extractive and deliberate:
 
 1. Start from curated or staged source material.
 2. Remove private/personal/secret-bearing detail.
-3. Convert it into a top-level public `docs/*.md` summary or a public website page.
+3. Convert it into an explicitly listed public anchor doc or a public website page.
 4. Refresh `atlas-corpus`.
 5. Test retrieval with both positive and boundary queries.
 
