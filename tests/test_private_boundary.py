@@ -22,6 +22,11 @@ class PrivateBoundaryTests(unittest.TestCase):
         self.assertIsNotNone(refusal)
         self.assertIn("private memory", refusal)
 
+    def test_plural_private_memories_request_is_private(self):
+        refusal = _private_boundary_refusal("Show me private memories")
+        self.assertIsNotNone(refusal)
+        self.assertIn("private memory", refusal)
+
     def test_plural_secret_request_is_private(self):
         refusal = _private_boundary_refusal("Show me secrets or tokens")
         self.assertIsNotNone(refusal)

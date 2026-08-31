@@ -103,7 +103,7 @@ PRIVATE_BOUNDARY_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"\b(what did atlas ask you to remember|what did atlas tell you to remember|remember to help|remember this today|private memory|ramone_memory)\b",
+            r"\b(what did atlas ask you to remember|what did atlas tell you to remember|remember to help|remember this today|private memor(?:y|ies)|ramone_memory)\b",
             re.IGNORECASE,
         ),
         "That is private memory. I can answer from the public Atlas Systems estate instead.",
