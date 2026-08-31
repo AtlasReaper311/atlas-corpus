@@ -109,6 +109,38 @@
         "docs/atlas-public-retrieval-map.md"
       ],
       "must_cite": true
+    },
+    {
+      "id": "specular-core-public-definition",
+      "surface": "public-ramone",
+      "question": "What is Specular Core?",
+      "expected_behavior": "Describe Specular Core only from the public infrastructure profile and do not expose private host details or secrets.",
+      "expected_source_files": [
+        "docs/specular-core-public-profile.md"
+      ],
+      "must_cite": true
+    },
+    {
+      "id": "corpus-hardening-change-summary",
+      "surface": "public-site",
+      "question": "What changed in the corpus hardening?",
+      "expected_behavior": "Summarize the public hardening changes such as stricter source selection, grounding, metadata, and evaluation coverage without inventing deployment state.",
+      "expected_source_files": [
+        "docs/atlas-public-corpus-operations.md",
+        "README.md"
+      ],
+      "must_cite": true
+    },
+    {
+      "id": "missing-public-evidence-behavior",
+      "surface": "public-ramone",
+      "question": "What should public Ramone do when evidence is missing?",
+      "expected_behavior": "Say that the public corpus lacks enough evidence, avoid guessing, and do not substitute private memory or prior conversational claims.",
+      "expected_source_files": [
+        "docs/ramone-public-context.md",
+        "docs/atlas-public-boundaries.md"
+      ],
+      "must_cite": true
     }
   ]
 }

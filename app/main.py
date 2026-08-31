@@ -521,6 +521,12 @@ def _cited_numbers(answer: str, count: int) -> list[int]:
     return cited
 
 
+def _citation_contract_failed(answer: str, count: int) -> bool:
+    """Reject synthesized answers that cannot be mapped to supplied sources."""
+    references = [int(raw) for raw in re.findall(r"\[(\d+)\]", answer)]
+    return not references or any(reference < 1 or reference > count for reference in references)
+
+
 def _use_openai_answer(settings: Settings) -> bool:
     return getattr(settings, "answer_provider", "ollama").strip().lower() in {
         "openai",
@@ -698,6 +704,14 @@ async def _answer_from_hits(
         )
     selected_sources: list[AskSource] = []
     declined = _answer_declines(answer)
+    if not declined and _citation_contract_failed(answer, len(answer_hits)):
+        logger.warning("answer synthesis returned without valid source citations")
+        return AskResponse(
+            answer=(
+                "The retrieved corpus evidence was not cited clearly enough to support a reliable answer."
+            ),
+            sources=[],
+        )
     if not declined:
         cited = _cited_numbers(answer, len(answer_hits))
         if cited:

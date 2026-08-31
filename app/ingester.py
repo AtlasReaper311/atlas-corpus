@@ -219,6 +219,9 @@ async def _gather_documents(gh: GitHub, settings: Settings) -> list[SourceDocume
     repos_by_name = {repo["name"]: repo for repo in await gh.list_repos(owner)}
     for name in sorted(allowed):
         repo_policy = allowed[name]
+        if repo_policy.scope.strip().lower() != "public":
+            logger.info("classified repo excluded from public corpus by scope: %s", name)
+            continue
         repo = repos_by_name.get(name)
         if not repo:
             logger.warning("classified repo missing from public GitHub list: %s", name)
@@ -244,7 +247,12 @@ async def _gather_documents(gh: GitHub, settings: Settings) -> list[SourceDocume
             continue
         repo, path, doc_type = entry.split(":", 2)
         repo_policy = allowed.get(repo)
-        if repo not in allowed or repo in excluded:
+        if (
+            repo not in allowed
+            or repo in excluded
+            or not repo_policy
+            or repo_policy.scope.strip().lower() != "public"
+        ):
             logger.warning("extra file skipped because repo is not public-classified: %s/%s", repo, path)
             continue
         file = await gh.get_file_info(owner, repo, path)
