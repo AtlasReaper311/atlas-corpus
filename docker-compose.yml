@@ -50,7 +50,7 @@ services:
       - ARTICLE_PREFIX=${ARTICLE_PREFIX:-writing/}
       - EXTRA_FILES=${EXTRA_FILES:-atlas-infra:docs/decisions.md:decision}
       - DOCS_DIR=${DOCS_DIR:-/srv/docs}
-      - CURATED_DOCS=${CURATED_DOCS:-ramone-public-context.md:ramone-public,ramone-public-faq.md:ramone-public,atlas-public-boundaries.md:policy,atlas-public-context.md:portfolio,atlas-public-service-map.md:portfolio,atlas-public-retrieval-map.md:policy,atlas-brand.md:brand,specular-core-public-profile.md:infra-public}
+      - CURATED_DOCS=${CURATED_DOCS:-ramone-public-context.md:ramone-public,ramone-public-faq.md:ramone-public,atlas-public-boundaries.md:policy,atlas-public-context.md:portfolio,atlas-public-service-map.md:portfolio,atlas-public-retrieval-map.md:policy,atlas-brand.md:brand,specular-core-public-profile.md:infra-public,atlas-public-estate-map.md:estate-map,atlas-public-runtime-catalog.md:runtime-catalog,atlas-public-ramone-architecture.md:ramone-public,atlas-public-history.md:public-history}
       - CHUNK_WORDS=${CHUNK_WORDS:-512}
       - CHUNK_OVERLAP_WORDS=${CHUNK_OVERLAP_WORDS:-64}
       - TOP_K_DEFAULT=${TOP_K_DEFAULT:-5}
