@@ -87,7 +87,11 @@ class Settings(BaseSettings):
         "atlas-public-retrieval-map.md:policy,"
         "atlas-public-corpus-operations.md:policy,"
         "atlas-brand.md:brand,"
-        "specular-core-public-profile.md:infra-public"
+        "specular-core-public-profile.md:infra-public,"
+        "atlas-public-estate-map.md:estate-map,"
+        "atlas-public-runtime-catalog.md:runtime-catalog,"
+        "atlas-public-ramone-architecture.md:ramone-public,"
+        "atlas-public-history.md:public-history"
     )
 
     # Chunking: word-based, sized to approximate the specced 512 tokens
