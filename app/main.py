@@ -898,6 +898,7 @@ async def health() -> HealthResponse:
         service=SERVICE_NAME,
         version=SERVICE_VERSION,
         chroma_ok=chroma_ok,
+        vector_backend=settings.vector_backend,
         ollama_ok=ollama_ok,
         documents=len(app.state.index) or int(app.state.last_stats.get("documents", 0)),
         chunks=chunks,

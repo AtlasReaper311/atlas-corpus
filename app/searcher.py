@@ -7,16 +7,16 @@ The vector path stays intact so the comparison script can run both in
 one process and show the difference on real queries.
 """
 
+from __future__ import annotations
+
 import logging
 import time
 from datetime import datetime, timezone
 
-import chromadb
-from chromadb.api.models.Collection import Collection
-
 from app.config import Settings
 from app.hybrid import HybridIndex, cosine_similarity, rrf_fuse
 from app.models import SearchHit
+from app.vector_store import connect_collection
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +34,10 @@ def connect_collection(settings: Settings) -> Collection:
     last_error: Exception | None = None
     for attempt in range(1, READINESS_ATTEMPTS + 1):
         try:
-            client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-            client.heartbeat()
-            collection = client.get_or_create_collection(
-                name=settings.collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
+            collection = connect_collection(settings)
             logger.info(
-                "Chroma ready at %s:%d, collection %s (%d chunks)",
-                settings.chroma_host,
-                settings.chroma_port,
+                "%s ready, collection %s (%d chunks)",
+                settings.vector_backend,
                 settings.collection_name,
                 collection.count(),
             )

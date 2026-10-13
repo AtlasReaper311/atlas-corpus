@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     chroma_host: str = "chromadb"
     chroma_port: int = 8000
     collection_name: str = "atlas_corpus"
+    # Chroma remains the default until an approved cutover. Qdrant requires
+    # HTTPS and an API key; the adapter refuses insecure or unauthenticated
+    # configuration.
+    vector_backend: str = "chroma"
+    qdrant_url: str = "https://qdrant:6333"
+    qdrant_api_key: str = ""
+    qdrant_ca_cert: str = ""
+    qdrant_verify_tls: bool = True
+    qdrant_vector_size: int = 768
+    qdrant_timeout_seconds: float = 20.0
 
     # GitHub ingestion. The token is optional for public repos but
     # strongly recommended: unauthenticated GitHub API allows 60
