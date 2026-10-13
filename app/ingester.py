@@ -13,7 +13,7 @@ search source merely because it is available on the host.
 
 Chunk ids are deterministic. Each refresh also removes chunks whose source
 document is no longer in the approved source set, so tightening the publication
-boundary removes old material instead of leaving it stranded in Chroma.
+boundary removes old material instead of leaving it stranded in Qdrant.
 """
 
 import hashlib
@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 
 import httpx
-from chromadb.api.models.Collection import Collection
+from typing import Any
 
 from app.adr import gather_adrs
 from app.chunking import chunk_document
@@ -313,7 +313,7 @@ async def _gather_documents(gh: GitHub, settings: Settings) -> list[SourceDocume
 
 
 def _prune_removed_documents(
-    collection: Collection,
+    collection: Any,
     active_doc_keys: set[str],
 ) -> int:
     """Delete chunks whose source document left the approved public source set."""
@@ -333,7 +333,7 @@ def _prune_removed_documents(
 async def run_ingest(
     client: httpx.AsyncClient,
     settings: Settings,
-    collection: Collection,
+    collection: Any,
     embed_fn,
 ) -> IngestStats:
     """Full public-source ingest pass with deterministic upsert and pruning."""

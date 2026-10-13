@@ -2,27 +2,16 @@
 #
 # One command to a queryable corpus: docker compose up --build -d
 #
-# Two services: a pinned Chroma vector store and the FastAPI corpus built from
-# this repo. Ollama stays on the host; the container reaches it through
+# The FastAPI corpus connects to a separately managed private Qdrant service.
+# Ollama stays on the host; the container reaches it through
 # host.docker.internal.
 
 name: atlas-corpus
 
 services:
-  chromadb:
-    image: chromadb/chroma:0.5.23
-    restart: unless-stopped
-    environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-    volumes:
-      - corpus-chroma:/chroma/chroma
-
   corpus:
     build: .
     restart: unless-stopped
-    depends_on:
-      - chromadb
     ports:
       - "8092:8092"
     environment:
@@ -38,12 +27,8 @@ services:
       # 0 keeps the embedder on CPU so it cannot evict the answer
       # model from VRAM. See app/config.py for the measurements.
       - EMBED_NUM_GPU=${EMBED_NUM_GPU:-0}
-      - CHROMA_HOST=chromadb
-      - CHROMA_PORT=8000
       - COLLECTION_NAME=${COLLECTION_NAME:-atlas_corpus}
-      # Chroma stays the default. Set VECTOR_BACKEND=qdrant only against
-      # the approved private TLS Qdrant deployment.
-      - VECTOR_BACKEND=${VECTOR_BACKEND:-chroma}
+      - VECTOR_BACKEND=${VECTOR_BACKEND:-qdrant}
       - QDRANT_URL=${QDRANT_URL:-https://qdrant:6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - QDRANT_CA_CERT=${QDRANT_CA_CERT:-}
@@ -82,5 +67,4 @@ services:
       - "host.docker.internal:host-gateway"
 
 volumes:
-  corpus-chroma:
   corpus-data:

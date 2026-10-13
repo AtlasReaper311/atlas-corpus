@@ -1,4 +1,4 @@
-"""ChromaDB connection and semantic search for the corpus.
+"""Private Qdrant connection and semantic search for the corpus.
 
 The vector-only primitives connect_collection and search are unchanged
 from before hybrid retrieval landed; hybrid_search is added alongside
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from app.config import Settings
 from app.hybrid import HybridIndex, cosine_similarity, rrf_fuse
 from app.models import SearchHit
-from app.vector_store import connect_collection
+from app.vector_store import connect_collection as connect_backend
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,8 @@ READINESS_ATTEMPTS = 30
 READINESS_DELAY_SECONDS = 2.0
 
 
-def connect_collection(settings: Settings) -> Collection:
-    """Connect to Chroma with retries and open the corpus collection.
+def connect_collection(settings: Settings):
+    """Connect to Qdrant with retries and open the corpus collection.
 
     Cosine space is set at creation time: with normalised embeddings it
     makes distance interpretable (score = 1 - distance), and it cannot
@@ -34,7 +34,7 @@ def connect_collection(settings: Settings) -> Collection:
     last_error: Exception | None = None
     for attempt in range(1, READINESS_ATTEMPTS + 1):
         try:
-            collection = connect_collection(settings)
+            collection = connect_backend(settings)
             logger.info(
                 "%s ready, collection %s (%d chunks)",
                 settings.vector_backend,
@@ -45,14 +45,13 @@ def connect_collection(settings: Settings) -> Collection:
         except Exception as exc:  # noqa: BLE001 - any failure means "not ready"
             last_error = exc
             logger.info(
-                "Waiting for Chroma at %s:%d (attempt %d/%d)",
-                settings.chroma_host,
-                settings.chroma_port,
+                "Waiting for private Qdrant at %s (attempt %d/%d)",
+                settings.qdrant_url,
                 attempt,
                 READINESS_ATTEMPTS,
             )
             time.sleep(READINESS_DELAY_SECONDS)
-    raise RuntimeError(f"Chroma unreachable: {last_error}")
+    raise RuntimeError(f"Qdrant unreachable: {last_error}")
 
 
 def search(collection: Collection, embedding: list[float], k: int) -> list[SearchHit]:
@@ -243,7 +242,7 @@ def hybrid_search(
             document = fetched["documents"][position]
             meta = fetched["metadatas"][position]
             stored = fetched_embeddings[position] if position < len(fetched_embeddings) else None
-            # Chroma returns embeddings as numpy arrays; "is not None"
+            # Qdrant returns embeddings as ordinary Python lists; "is not None"
             # and len() avoid the truthiness ambiguity of an array.
             if stored is not None and len(stored):
                 similarity = cosine_similarity(embedding, list(stored))

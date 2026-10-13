@@ -8,11 +8,11 @@ logger = logging.getLogger(__name__)
 
 
 def restore_index_from_collection(collection) -> dict[str, dict]:
-    """Rebuild the in-memory /index from persisted Chroma metadata."""
+    """Rebuild the in-memory /index from persisted Qdrant payloads."""
     try:
         rows = collection.get(include=["metadatas"])
     except Exception:  # noqa: BLE001
-        logger.exception("could not restore corpus index from Chroma")
+        logger.exception("could not restore corpus index from Qdrant")
         return {}
     index: dict[str, dict] = {}
     for meta in rows.get("metadatas") or []:

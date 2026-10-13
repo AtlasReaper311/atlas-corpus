@@ -140,7 +140,7 @@ class HealthResponse(BaseModel):
     service: str
     version: str
     chroma_ok: bool
-    vector_backend: str = "chroma"
+    vector_backend: str = "qdrant"
     ollama_ok: bool
     documents: int
     chunks: int

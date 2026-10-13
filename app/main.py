@@ -257,7 +257,7 @@ async def _periodic_query_summary(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start order: settings (fail-closed secret), Ollama, Chroma, ingest."""
+    """Start order: settings (fail-closed secret), Ollama, private Qdrant, ingest."""
     settings = get_settings()
     logging.basicConfig(
         level=settings.log_level.upper(),
