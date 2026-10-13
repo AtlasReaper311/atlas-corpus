@@ -61,7 +61,7 @@ def parse_adr(text: str) -> dict:
     """Validate frontmatter and body; return normalised fields.
 
     Dates arrive from tomllib as date objects and are normalised to
-    strings, because Chroma metadata values must be scalar strings,
+    strings, because vector-store metadata values must be scalar strings,
     ints, floats, or bools. supersedes and slug are optional and only
     carried when present, so records without them store no null.
     """

@@ -1,6 +1,6 @@
 """Side-by-side vector-only versus hybrid retrieval on real queries.
 
-Run inside the container so it shares the live Chroma and Ollama:
+Run inside the container so it shares the private Qdrant and Ollama:
 
     docker compose exec corpus python -m app.compare_retrieval
     docker compose exec corpus python -m app.compare_retrieval "zone_id" "522"

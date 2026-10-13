@@ -12,7 +12,7 @@ boundary strategy from what the document actually is:
             top-level key
 
 Each chunk contributes chunk_type (plus symbol, heading, or key where
-one exists) to its Chroma metadata, so retrieval can filter or weight
+one exists) to its Qdrant payload metadata, so retrieval can filter or weight
 by kind later. Anything unrecognised, and any file a specialised
 splitter cannot make sense of, falls back to the exact word window
 the corpus has always used: a new file type degrades to the old

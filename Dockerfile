@@ -1,4 +1,4 @@
-FROM python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea
+FROM python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -14,7 +14,7 @@ COPY app ./app
 # log volume. The mountpoint is created before the chown so the named
 # volume initialises with corpus ownership instead of root; the same
 # ownership trap as the Ollama model dir, closed at build time.
-RUN useradd --create-home --uid 10001 corpus \
+RUN adduser -D -u 10001 corpus \
     && mkdir -p /srv/data \
     && chown -R corpus /srv
 USER corpus

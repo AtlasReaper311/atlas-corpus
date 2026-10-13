@@ -1,0 +1,4 @@
+# Hash-locked CI environment. Keep runtime dependencies aligned with the
+# production requirements while adding only the test runner.
+-r ../requirements.txt
+pytest==8.4.2

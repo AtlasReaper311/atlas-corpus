@@ -13,10 +13,10 @@
 
 ![Python](https://img.shields.io/badge/python-3.12-f5a623?style=flat-square&labelColor=0a0a0f)
 ![FastAPI](https://img.shields.io/badge/api-fastapi-4ade80?style=flat-square&labelColor=0a0a0f)
-![Vector store](https://img.shields.io/badge/vectors-chromadb-aaa9a0?style=flat-square&labelColor=0a0a0f)
+![Vector store](https://img.shields.io/badge/vectors-qdrant-4ade80?style=flat-square&labelColor=0a0a0f)
 ![Cost](https://img.shields.io/badge/cost-%C2%A30-aaa9a0?style=flat-square&labelColor=0a0a0f)
 
-A queryable knowledge layer over the public Atlas Systems estate. Public repository READMEs, approved architecture documents, published case studies, and published articles are fetched from GitHub, chunked, embedded locally, stored in Chroma, and searched by meaning without turning owner-local or private repository context into a public source.
+A queryable knowledge layer over the public Atlas Systems estate. Public repository READMEs, approved architecture documents, published case studies, and published articles are fetched from GitHub, chunked, embedded locally, stored in private Qdrant, and searched by meaning without turning owner-local or private repository context into a public source.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ type-aware chunking
 nomic-embed-text
         │
         ▼
-ChromaDB atlas_corpus
+Private Qdrant atlas_corpus
         │
         ├── POST /search
         └── GET/POST /ask
@@ -78,7 +78,7 @@ A document enters the corpus only through one of these paths:
 
 Repository authentication must not widen the source set: a token may increase API rate limits, but private repository visibility is not treated as permission to ingest private content. GitHub visibility alone is also not enough; the classification projection and its public scope are the authority for inclusion.
 
-Removed documents are pruned by `doc_key` on refresh. Existing chunks that are not present in the current approved source index are deleted from Chroma.
+Removed documents are pruned by `doc_key` on refresh. Existing chunks that are not present in the current approved source index are deleted from Qdrant.
 
 ## Tunnel hostname
 
@@ -101,7 +101,7 @@ The tunnel does not turn every local endpoint into a public contract. Only the d
 | `GET/POST` | `/ask` | none, rate-limited | Grounded answer with cited public sources |
 | `GET` | `/index` | none | Current public source documents and chunk counts |
 | `POST` | `/refresh` | `x-corpus-secret` | Start a single-flight public-source re-ingest |
-| `GET` | `/health` | none | Service, Chroma, embedding runtime, and corpus health |
+| `GET` | `/health` | none | Service, private Qdrant, embedding runtime, and corpus health |
 | `GET` | `/stats` | none | Aggregate query statistics without IP logging |
 
 ## Keeping it current
@@ -114,7 +114,7 @@ Chunk IDs are deterministic from repository, path, and chunk index. Unchanged ch
 
 Search combines vector recall with BM25 lexical recall, then applies small boosts for authoritative/recent sources and gives distinct documents a chance to represent the answer before using a second chunk from one document. Each result carries provenance for citations, including source class, scope, lifecycle, heading path, source URL, public URL, source ref, source hash, and document type. Answer synthesis fails closed when the model does not return citations that map to the supplied excerpts. Query logging stores query text, result count, and latency locally; IP addresses are not logged.
 
-The public question boundary also rejects categories that are outside the public estate, including credentials, private memory, employer material, and private application or academic material. The stronger control is still source selection: content outside the approved public source set should never reach Chroma in the first place.
+The public question boundary also rejects categories that are outside the public estate, including credentials, private memory, employer material, and private application or academic material. The stronger control is still source selection: content outside the approved public source set should never reach the public Qdrant collection in the first place.
 
 ## Development
 

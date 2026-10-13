@@ -6,7 +6,7 @@ similarity over nomic-embed-text ranks by meaning, and a rare literal
 carries little of it. BM25 ranks by term overlap and finds those hits;
 fusing the two rankings keeps the strengths of both.
 
-The BM25 index lives in memory, rebuilt from Chroma in one paginated
+    The BM25 index lives in memory, rebuilt from Qdrant in one paginated
 pass. At this corpus scale (tens of documents, low thousands of
 chunks) the rebuild is trivial, so staleness is handled by rebuilding
 whenever the collection changes rather than by any coordination

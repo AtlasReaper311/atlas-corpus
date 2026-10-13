@@ -48,9 +48,16 @@ class Settings(BaseSettings):
     answer_timeout_seconds: float = 180.0
     health_timeout_seconds: float = 5.0
 
-    chroma_host: str = "chromadb"
-    chroma_port: int = 8000
     collection_name: str = "atlas_corpus"
+    # The production backend is intentionally fail-closed: Qdrant requires
+    # HTTPS and an API key, and there is no silent fallback to a legacy store.
+    vector_backend: str = "qdrant"
+    qdrant_url: str = "https://qdrant:6333"
+    qdrant_api_key: str = ""
+    qdrant_ca_cert: str = ""
+    qdrant_verify_tls: bool = True
+    qdrant_vector_size: int = 768
+    qdrant_timeout_seconds: float = 20.0
 
     # GitHub ingestion. The token is optional for public repos but
     # strongly recommended: unauthenticated GitHub API allows 60
@@ -115,7 +122,7 @@ class Settings(BaseSettings):
     # Periodic re-ingest in seconds; 0 disables it because the push
     # trigger (github-trigger/) is the primary freshness mechanism.
     refresh_interval_seconds: int = 0
-    # Startup re-ingest is disabled by default. The persisted Chroma
+    # Startup re-ingest is disabled by default. The persisted Qdrant
     # collection is restored immediately at boot, and push/manual
     # refreshes own freshness. Set to 0 for immediate startup refresh,
     # or a positive delay in seconds if a host needs warm-up time.
