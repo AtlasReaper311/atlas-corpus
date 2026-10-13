@@ -52,6 +52,7 @@ from app.models import (
 )
 from app.hybrid import HybridIndex
 from app.searcher import connect_collection, search, hybrid_search, lexical_search
+from app.write_policy import require_writes_enabled, write_freeze_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,9 @@ async def _wait_for_ollama(client: httpx.AsyncClient, settings: Settings) -> boo
 
 async def _refresh(app: FastAPI, reason: str) -> None:
     """One single-flight ingest pass; concurrent triggers are dropped."""
+    if app.state.write_frozen:
+        logger.info("refresh (%s) skipped: writes are frozen", reason)
+        return
     if app.state.refresh_lock.locked():
         logger.info("refresh (%s) skipped: one is already running", reason)
         return
@@ -271,6 +275,7 @@ async def lifespan(app: FastAPI):
             "and set it in .env; docker-compose.yml enforces the same."
         )
     app.state.settings = settings
+    app.state.write_frozen = write_freeze_enabled()
     app.state.client = httpx.AsyncClient()
     app.state.ollama_ready_at_startup = await _wait_for_ollama(app.state.client, settings)
     app.state.collection = connect_collection(settings)
@@ -287,7 +292,7 @@ async def lifespan(app: FastAPI):
     app.state.rate_buckets = defaultdict(deque)
 
     startup_ingest = None
-    if settings.startup_refresh_delay_seconds >= 0:
+    if not app.state.write_frozen and settings.startup_refresh_delay_seconds >= 0:
         startup_ingest = asyncio.create_task(_delayed_startup_refresh(app))
     else:
         logger.info(
@@ -295,10 +300,12 @@ async def lifespan(app: FastAPI):
             len(app.state.index),
         )
     periodic_task = None
-    if settings.refresh_interval_seconds > 0:
+    if not app.state.write_frozen and settings.refresh_interval_seconds > 0:
         periodic_task = asyncio.create_task(_periodic_refresh(app))
     summary_task = None
     if (
+        not app.state.write_frozen
+        and
         settings.rag_report_key
         and settings.rag_report_url
         and settings.rag_summary_interval_seconds > 0
@@ -748,7 +755,8 @@ async def _run_search(payload: SearchRequest, request: Request) -> SearchRespons
     started = time.time()
     if not internal and _private_boundary_refusal(payload.query):
         took_ms = int((time.time() - started) * 1000)
-        _log_query_fire_and_forget(payload.query, 0, took_ms)
+        if not app.state.write_frozen:
+            _log_query_fire_and_forget(payload.query, 0, took_ms)
         return SearchResponse(query=payload.query, hits=[], took_ms=took_ms)
     k = min(payload.top_k or settings.top_k_default, settings.top_k_max)
     degraded = False
@@ -782,7 +790,7 @@ async def _run_search(payload: SearchRequest, request: Request) -> SearchRespons
             freshness_marker=app.state.last_refresh,
         )
     took_ms = int((time.time() - started) * 1000)
-    if not internal:
+    if not internal and not app.state.write_frozen:
         _log_query_fire_and_forget(payload.query, len(hits), took_ms)
     return SearchResponse(
         query=payload.query, hits=hits, took_ms=took_ms, degraded=degraded
@@ -815,7 +823,8 @@ async def ask_corpus(payload: SearchRequest, request: Request) -> AskResponse:
     if not _is_internal(request):
         refusal = _private_boundary_refusal(payload.query)
         if refusal:
-            _log_query_fire_and_forget(payload.query, 0, 0)
+            if not app.state.write_frozen:
+                _log_query_fire_and_forget(payload.query, 0, 0)
             return AskResponse(answer=refusal, sources=[])
     search_response = await _run_search(payload, request)
     return await _answer_from_hits(
@@ -870,6 +879,7 @@ async def query_stats() -> StatsResponse:
 async def refresh(request: Request) -> RefreshResponse:
     """Secret-gated re-ingest; returns immediately, work runs behind."""
     _require_secret(request)
+    require_writes_enabled(app.state.write_frozen)
     if app.state.refresh_lock.locked():
         return RefreshResponse(status="already_running", last_refresh=app.state.last_refresh)
     asyncio.create_task(_refresh(app, reason="webhook"))
@@ -882,10 +892,10 @@ async def health() -> HealthResponse:
     settings: Settings = app.state.settings
     try:
         chunks = app.state.collection.count()
-        chroma_ok = True
+        vector_store_ok = True
     except Exception:  # noqa: BLE001
         chunks = 0
-        chroma_ok = False
+        vector_store_ok = False
     try:
         response = await app.state.client.get(
             f"{settings.ollama_host}/api/tags", timeout=settings.health_timeout_seconds
@@ -894,11 +904,13 @@ async def health() -> HealthResponse:
     except Exception:  # noqa: BLE001
         ollama_ok = False
     return HealthResponse(
-        ok=chroma_ok and ollama_ok,
+        ok=vector_store_ok and ollama_ok,
         service=SERVICE_NAME,
         version=SERVICE_VERSION,
-        chroma_ok=chroma_ok,
+        chroma_ok=vector_store_ok,
         vector_backend=settings.vector_backend,
+        vector_store_ok=vector_store_ok,
+        write_frozen=app.state.write_frozen,
         ollama_ok=ollama_ok,
         documents=len(app.state.index) or int(app.state.last_stats.get("documents", 0)),
         chunks=chunks,

@@ -141,6 +141,8 @@ class HealthResponse(BaseModel):
     version: str
     chroma_ok: bool
     vector_backend: str = "qdrant"
+    vector_store_ok: bool
+    write_frozen: bool
     ollama_ok: bool
     documents: int
     chunks: int
