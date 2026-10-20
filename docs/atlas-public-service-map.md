@@ -21,7 +21,7 @@ This file gives public-safe service context for Atlas Systems.
 | Repo | Public role |
 |---|---|
 | `atlas-systems` | Main static website. |
-| `atlas-corpus` | Public retrieval and answer service using FastAPI, ChromaDB, Ollama embeddings, and the shared local generation endpoint. |
+| `atlas-corpus` | Public retrieval and answer service using FastAPI, private Qdrant, Ollama embeddings, and the shared local generation endpoint. |
 | `ollama-rag-kit` | Public Ramone upstream for browser chat, prompt packing, streaming, and short browser-session memory. |
 | `ramone-edge` | Cloudflare Worker front for public Ramone. |
 | `ramone-memory` | Private/local long-term memory service; not public browser memory. |
