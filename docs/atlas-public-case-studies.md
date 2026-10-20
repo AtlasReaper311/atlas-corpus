@@ -63,7 +63,7 @@ The important public point: SlamPunk treats music as a gameplay-responsive syste
 
 ## W-03 Ramone
 
-Ramone is the Atlas Systems local AI layer. It runs on SPECULAR-CORE using WSL2, native Linux Docker Engine, Ollama, ChromaDB, Open WebUI, and retrieval services.
+Ramone is the Atlas Systems local AI layer. The setup described in this case study runs on SPECULAR-CORE using WSL2, native Linux Docker Engine, Ollama, Open WebUI, and retrieval services. At the time of the original setup, it used ChromaDB; current service source has moved production vector storage to Qdrant. This source update does not verify which backend is currently running on SPECULAR-CORE.
 
 Core architecture:
 
