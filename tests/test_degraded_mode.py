@@ -15,7 +15,12 @@ import unittest
 import httpx
 
 from app.hybrid import HybridIndex
-from app.main import ANSWER_GROUNDING_RULES, _answer_from_hits, _fallback_answer_from_hits
+from app.main import (
+    ANSWER_GROUNDING_RULES,
+    ANSWER_RUNTIME_DISCLOSURE_RULES,
+    _answer_from_hits,
+    _fallback_answer_from_hits,
+)
 from app.models import SearchHit
 from app.searcher import lexical_search
 
@@ -161,6 +166,66 @@ class AnswerFromHitsTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(answer.degraded)
         self.assertIn("public request timeout", answer.answer)
 
+    async def test_prompt_answers_direct_current_runtime_questions_from_clear_evidence(self):
+        captured = {}
+
+        class CapturingClient:
+            async def post(self, url, json=None, **kwargs):
+                captured["prompt"] = json["prompt"]
+
+                class Response:
+                    @staticmethod
+                    def raise_for_status():
+                        return None
+
+                    @staticmethod
+                    def json():
+                        return {"response": "Qwen 3.5 serves it. [1]"}
+
+                return Response()
+
+        question = "Which model currently serves public Ramone?"
+        excerpt = "The current answer model for public Ramone is Qwen 3.5."
+        answer = await _answer_from_hits(
+            CapturingClient(), _Settings(), question, [_hit(0.8, text=excerpt)]
+        )
+
+        self.assertIn("answer that question directly", captured["prompt"])
+        self.assertIn("in unrelated answers", captured["prompt"])
+        self.assertIn(f"Question: {question}", captured["prompt"])
+        self.assertIn(excerpt, captured["prompt"])
+        self.assertEqual(answer.answer, "Qwen 3.5 serves it. [1]")
+
+    async def test_prompt_keeps_historical_runtime_details_in_the_past(self):
+        captured = {}
+
+        class CapturingClient:
+            async def post(self, url, json=None, **kwargs):
+                captured["prompt"] = json["prompt"]
+
+                class Response:
+                    @staticmethod
+                    def raise_for_status():
+                        return None
+
+                    @staticmethod
+                    def json():
+                        return {"response": "It previously used Qwen 32B. [1]"}
+
+                return Response()
+
+        question = "Which model did it use last year?"
+        excerpt = "Historical configuration: the answer model was Qwen 32B."
+        answer = await _answer_from_hits(
+            CapturingClient(), _Settings(), question, [_hit(0.8, text=excerpt)]
+        )
+
+        self.assertIn("clearly marked historical excerpts", captured["prompt"])
+        self.assertIn("Never present historical details as current", captured["prompt"])
+        self.assertIn(f"Question: {question}", captured["prompt"])
+        self.assertIn(excerpt, captured["prompt"])
+        self.assertEqual(answer.answer, "It previously used Qwen 32B. [1]")
+
     async def test_openai_provider_targets_shared_llama_endpoint(self):
         captured = {}
 
@@ -198,6 +263,7 @@ class AnswerFromHitsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["json"]["model"], "qwen3.5-mtp")
         self.assertFalse(captured["json"]["stream"])
         self.assertIn(ANSWER_GROUNDING_RULES, captured["json"]["messages"][0]["content"])
+        self.assertIn(ANSWER_RUNTIME_DISCLOSURE_RULES, captured["json"]["messages"][0]["content"])
         self.assertIn("Keep each source's subject and claim together", captured["json"]["messages"][0]["content"])
         self.assertEqual(answer.answer, "It uses the shared endpoint. [1]")
         self.assertTrue(answer.sources)
